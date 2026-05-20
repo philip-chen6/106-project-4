@@ -11,8 +11,9 @@
     <header class="hero">
       <nav>
         <a href="#proposal">Proposal</a>
-        <a href="#visualizations">Visualizations</a>
         <a href="#dataset">Dataset</a>
+        <a href="#team">Team</a>
+        <a href="#visualizations">Visualizations</a>
       </nav>
       <section class="hero-grid">
         <div>
@@ -43,6 +44,16 @@
       <section id="proposal" class="section">
         <div class="section-copy">
           <h2>Project Proposal</h2>
+          <div class="proposal-meta" aria-label="Proposal summary">
+            <div>
+              <span>Project title</span>
+              <strong>Designed Not to Be Skipped</strong>
+            </div>
+            <div>
+              <span>Working subtitle</span>
+              <strong>Music to My Ears</strong>
+            </div>
+          </div>
           <p>
             Popular music has always changed with technology: radio, albums,
             MTV, downloads, and now streaming. Streaming platforms make skipping
@@ -73,13 +84,40 @@
         </aside>
       </section>
 
+      <section id="dataset" class="section">
+        <div class="section-copy">
+          <h2>Dataset</h2>
+          <p>
+            We are using the public Kaggle dataset
+            <a
+              href="https://www.kaggle.com/datasets/thedevastator/billboard-hot-100-audio-features"
+              >Billboard Hot weekly charts with Spotify audio features</a
+            >. It includes weekly Billboard chart records and Spotify-derived
+            audio features, so it satisfies the outside-dataset requirement of
+            at least 100 rows and 5 columns.
+          </p>
+          <p>
+            The current cleaned version keeps one row per song, using the first
+            Billboard chart appearance as the song year. This gives a proposal
+            dataset of 24,206 songs with duration, chart performance, and audio
+            features including danceability, energy, loudness, acousticness,
+            valence, and tempo.
+          </p>
+        </div>
+        <aside class="question-box" id="team">
+          <h3>Team Members</h3>
+          <p>Philip Chen and teammate name to add before submission.</p>
+        </aside>
+      </section>
+
       <section id="visualizations" class="section visual-section">
         <div class="section-copy">
-          <h2>Proposal Visualizations</h2>
+          <h2>Static Proposal Visualizations</h2>
           <p>
-            These are the six static charts for the proposal. The final project
-            will turn this structure into an interactive narrative with year
-            scrubbing, era comparisons, annotations, and song-level inspection.
+            These six static charts are a first pass at understanding the
+            dataset. The final project will turn this structure into an
+            interactive narrative with year scrubbing, era comparisons,
+            annotations, and song-level inspection.
           </p>
         </div>
 
@@ -102,21 +140,10 @@
 
           <article class="chart-card">
             <div class="chart-heading">
-              <h3>3. Audio Features Over Time</h3>
-              <p>Average yearly movement in sound attributes.</p>
+              <h3>3. Era Sound Profile</h3>
+              <p>Average audio features for each listening era.</p>
             </div>
-            <div class="control-row">
-              <label for="feature-select">Feature</label>
-              <select id="feature-select">
-                <option value="danceability">Danceability</option>
-                <option value="energy">Energy</option>
-                <option value="loudness">Loudness</option>
-                <option value="acousticness">Acousticness</option>
-                <option value="valence">Valence</option>
-                <option value="tempo">Tempo</option>
-              </select>
-            </div>
-            <div id="feature-line" class="chart"></div>
+            <div id="era-profile" class="chart"></div>
           </article>
 
           <article class="chart-card">
@@ -145,27 +172,6 @@
             </div>
             <div id="outliers" class="outlier-list"></div>
           </article>
-        </div>
-      </section>
-
-      <section id="dataset" class="section">
-        <div class="section-copy">
-          <h2>Dataset</h2>
-          <p>
-            We are using the public Kaggle dataset
-            <a
-              href="https://www.kaggle.com/datasets/thedevastator/billboard-hot-100-audio-features"
-              >Billboard Hot weekly charts with Spotify audio features</a
-            >. It includes weekly Billboard chart records and Spotify-derived
-            audio features, so it satisfies the outside-dataset requirement of
-            at least 100 rows and 5 columns.
-          </p>
-          <p>
-            The current cleaned version keeps one row per song, using the first
-            Billboard chart appearance as the song year. This gives a proposal
-            dataset of 24,206 songs with duration, chart performance, and audio
-            features.
-          </p>
         </div>
       </section>
     </main>

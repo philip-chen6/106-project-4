@@ -161,6 +161,34 @@ h3 {
   font-size: 1.05rem;
 }
 
+.proposal-meta {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  margin: 0 0 24px;
+}
+
+.proposal-meta div {
+  padding: 16px;
+  border: 1px solid var(--line);
+  background: var(--panel);
+}
+
+.proposal-meta span {
+  display: block;
+  margin-bottom: 5px;
+  color: var(--muted);
+  font-size: 0.78rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.proposal-meta strong {
+  display: block;
+  font-size: 1rem;
+  line-height: 1.25;
+}
+
 .question-box {
   align-self: start;
   padding: 24px;
@@ -335,6 +363,10 @@ select {
   }
 
   .outlier-list {
+    grid-template-columns: 1fr;
+  }
+
+  .proposal-meta {
     grid-template-columns: 1fr;
   }
 }

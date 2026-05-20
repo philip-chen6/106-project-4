@@ -1,6 +1,7 @@
 const files = {
   yearly: "data/processed/yearly.csv",
   diversity: "data/processed/diversity.csv",
+  eraSummary: "data/processed/era_summary.csv",
   durationDist: "data/processed/duration_distribution.csv",
   scatter: "data/processed/duration_energy_scatter.csv",
   outliers: "data/processed/outliers.csv",
@@ -242,6 +243,65 @@ function scatterPlot(data) {
     .text("Energy");
 }
 
+function eraProfile(data) {
+  const frame = chartFrame("#era-profile", { top: 16, right: 16, bottom: 64, left: 44 });
+  const { g, innerWidth, innerHeight } = frame;
+  const eras = ["Pre-streaming", "Streaming growth", "Streaming native"];
+  const features = ["danceability", "energy", "acousticness", "valence"];
+  const labels = {
+    danceability: "Dance",
+    energy: "Energy",
+    acousticness: "Acoustic",
+    valence: "Valence",
+  };
+  const flat = features.flatMap((feature) =>
+    data.map((d) => ({
+      feature,
+      era: d.era,
+      value: d[feature],
+    }))
+  );
+  const x0 = d3.scaleBand().domain(features).range([0, innerWidth]).padding(0.2);
+  const x1 = d3.scaleBand().domain(eras).range([0, x0.bandwidth()]).padding(0.08);
+  const y = d3.scaleLinear().domain([0, 0.75]).range([innerHeight, 0]);
+
+  addGrid(g, x0, y, innerWidth, innerHeight);
+
+  g.append("g")
+    .selectAll("g")
+    .data(d3.group(flat, (d) => d.feature))
+    .join("g")
+    .attr("transform", ([feature]) => `translate(${x0(feature)},0)`)
+    .selectAll("rect")
+    .data(([, values]) => values)
+    .join("rect")
+    .attr("x", (d) => x1(d.era))
+    .attr("y", (d) => y(d.value))
+    .attr("width", x1.bandwidth())
+    .attr("height", (d) => innerHeight - y(d.value))
+    .attr("fill", (d) => colors.eras[d.era])
+    .on("mouseenter", (event, d) => {
+      showTip(
+        event,
+        `<strong>${d.era}</strong><br>${labels[d.feature]}: ${d.value.toFixed(3)}`
+      );
+    })
+    .on("mouseleave", hideTip);
+
+  g.append("g")
+    .attr("class", "axis")
+    .attr("transform", `translate(0,${innerHeight})`)
+    .call(d3.axisBottom(x0).tickFormat((d) => labels[d]));
+  g.append("g").attr("class", "axis").call(d3.axisLeft(y).ticks(5));
+
+  const legend = g.append("g").attr("transform", `translate(4,${innerHeight + 36})`);
+  eras.forEach((era, i) => {
+    const row = legend.append("g").attr("transform", `translate(${i * 128},0)`);
+    row.append("rect").attr("width", 10).attr("height", 10).attr("fill", colors.eras[era]);
+    row.append("text").attr("x", 16).attr("y", 10).attr("class", "annotation").text(era);
+  });
+}
+
 function renderOutliers(data) {
   const container = d3.select("#outliers");
   const format = d3.format(".2f");
@@ -265,9 +325,10 @@ function renderOutliers(data) {
 }
 
 async function init() {
-  const [yearly, diversity, durationDist, scatter, outliers] = await Promise.all([
+  const [yearly, diversity, eraSummary, durationDist, scatter, outliers] = await Promise.all([
     d3.csv(files.yearly, parseRow),
     d3.csv(files.diversity, parseRow),
+    d3.csv(files.eraSummary, parseRow),
     d3.csv(files.durationDist, parseRow),
     d3.csv(files.scatter, parseRow),
     d3.csv(files.outliers, parseRow),
@@ -280,6 +341,7 @@ async function init() {
   };
   lineChart("#duration-line", yearly, "duration_min", durationLabel);
   durationBars(durationDist);
+  eraProfile(eraSummary);
   scatterPlot(scatter);
   lineChart("#diversity-line", diversity, "feature_diversity", {
     label: "Feature diversity",
@@ -288,45 +350,18 @@ async function init() {
   });
   renderOutliers(outliers);
 
-  const featureSelect = document.querySelector("#feature-select");
-  const featureLabels = {
-    danceability: "Danceability",
-    energy: "Energy",
-    loudness: "Loudness",
-    acousticness: "Acousticness",
-    valence: "Valence",
-    tempo: "Tempo",
-  };
-  const formatters = {
-    loudness: (d) => `${d.toFixed(1)} dB`,
-    tempo: (d) => `${d.toFixed(1)} BPM`,
-    default: (d) => d.toFixed(3),
-  };
-
-  function renderFeature() {
-    const key = featureSelect.value;
-    lineChart("#feature-line", yearly, key, {
-      label: featureLabels[key],
-      value: formatters[key] || formatters.default,
-      color: colors.blue,
-    });
-  }
-
-  featureSelect.addEventListener("change", renderFeature);
-  renderFeature();
-
   window.addEventListener(
     "resize",
     debounce(() => {
       lineChart("#duration-line", yearly, "duration_min", durationLabel);
       durationBars(durationDist);
+      eraProfile(eraSummary);
       scatterPlot(scatter);
       lineChart("#diversity-line", diversity, "feature_diversity", {
         label: "Feature diversity",
         value: (d) => d.toFixed(3),
         color: colors.green,
       });
-      renderFeature();
     }, 200)
   );
 }
