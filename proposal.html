@@ -1,0 +1,181 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Project Proposal · Designed Not to Be Skipped</title>
+    <link rel="stylesheet" href="style.css" />
+  </head>
+  <body>
+    <header class="hero hero-compact">
+      <nav>
+        <a href="index.html">Visualization</a>
+        <a href="proposal.html" class="nav-active">Proposal</a>
+      </nav>
+      <section class="hero-grid hero-grid-compact">
+        <div>
+          <p class="eyebrow">DSC 106 · Final Project Proposal</p>
+          <h1>Designed Not to Be Skipped</h1>
+          <p class="lede">
+            How has the Billboard Hot 100 changed in the streaming era — and
+            has the modern hit song become optimized for instant attention?
+          </p>
+        </div>
+      </section>
+    </header>
+
+    <main>
+      <section class="section proposal-section">
+        <div class="section-copy">
+          <h2>Project Writeup</h2>
+          <p>
+            Streaming changed how people listen: any song is one search away, and
+            skipping costs nothing. We ask whether Billboard Hot 100 hits show
+            signs of being designed for that behavior — shorter runtimes, higher
+            energy, louder mixes, and more danceable grooves.
+          </p>
+          <p>
+            Using 24,206 deduplicated Hot 100 songs (1958–2021) merged with
+            Spotify audio features, we compare three eras:
+            <strong>pre-streaming</strong> (before 2010),
+            <strong>streaming growth</strong> (2010–2019), and
+            <strong>streaming native</strong> (2020 onward). The final
+            interactive page uses scrollytelling to walk through an
+            and-but-therefore narrative — what moved together, what diverged,
+            and what the modern hit profile looks like.
+          </p>
+          <p>
+            <a href="index.html">View the interactive visualization →</a>
+          </p>
+        </div>
+
+        <aside class="question-box">
+          <h3>Research Question</h3>
+          <p>
+            Have Billboard Hot 100 songs become shorter, louder, and more
+            danceable in the streaming era — and if so, what trade-offs appear
+            in other audio features?
+          </p>
+        </aside>
+      </section>
+
+      <section class="section proposal-section">
+        <div class="section-copy">
+          <h2>Dataset</h2>
+          <p>
+            <a
+              href="https://www.kaggle.com/datasets/thedevastator/billboard-hot-100-audio-features"
+              >Billboard Hot 100 with Spotify audio features</a
+            >
+            (Kaggle). Two files merged by SongID: weekly chart records and
+            Spotify-derived audio features. After deduplication by first chart
+            appearance, the cleaned dataset has 24,206 songs across 64 years.
+          </p>
+
+          <h3>Era Definitions</h3>
+          <ul class="era-list">
+            <li>
+              <span class="era-dot pre"></span>
+              <strong>Pre-streaming</strong> — before 2010 · 19,360 songs
+            </li>
+            <li>
+              <span class="era-dot growth"></span>
+              <strong>Streaming growth</strong> — 2010–2019 · 4,266 songs
+            </li>
+            <li>
+              <span class="era-dot native"></span>
+              <strong>Streaming native</strong> — 2020 onward · 580 songs
+            </li>
+          </ul>
+        </div>
+      </section>
+
+      <section class="section visual-section">
+        <div class="section-intro">
+          <h2>Proposal Visualizations</h2>
+          <p>
+            Static charts exploring duration, audio features over time, era
+            comparisons, and outliers that resist the trend.
+          </p>
+        </div>
+
+        <div class="static-chart-grid">
+          <figure class="static-chart wide">
+            <img src="charts/01_duration_timeline.png" alt="Average song duration over time" />
+            <figcaption>
+              <strong>Average Duration Over Time</strong>
+              Hit songs grew longer through the CD era, then shortened as streaming took hold.
+            </figcaption>
+          </figure>
+
+          <figure class="static-chart">
+            <img src="charts/02_duration_distribution_by_era.png" alt="Duration distribution by era" />
+            <figcaption>
+              <strong>Duration by Era</strong>
+              Streaming-native hits cluster under 3.5 minutes.
+            </figcaption>
+          </figure>
+
+          <figure class="static-chart">
+            <img src="charts/03_danceability_over_time.png" alt="Danceability over time" />
+            <figcaption>
+              <strong>Danceability Over Time</strong>
+              A steady climb from the 2000s onward.
+            </figcaption>
+          </figure>
+
+          <figure class="static-chart">
+            <img src="charts/04_energy_over_time.png" alt="Energy over time" />
+            <figcaption>
+              <strong>Energy Over Time</strong>
+              Energy peaks during the streaming growth era.
+            </figcaption>
+          </figure>
+
+          <figure class="static-chart">
+            <img src="charts/05_loudness_over_time.png" alt="Loudness over time" />
+            <figcaption>
+              <strong>Loudness Over Time</strong>
+              Modern hits are significantly louder than pre-streaming records.
+            </figcaption>
+          </figure>
+
+          <figure class="static-chart">
+            <img src="charts/06_duration_vs_energy.png" alt="Duration vs energy scatter" />
+            <figcaption>
+              <strong>Duration vs. Energy</strong>
+              Newer hits tend to be shorter with higher energy.
+            </figcaption>
+          </figure>
+
+          <figure class="static-chart">
+            <img src="charts/07_feature_diversity_over_time.png" alt="Feature diversity over time" />
+            <figcaption>
+              <strong>Feature Diversity</strong>
+              Has the sound of hits converged over time?
+            </figcaption>
+          </figure>
+
+          <figure class="static-chart wide">
+            <img src="charts/08_weird_modern_hits_table.png" alt="Outlier modern hits" />
+            <figcaption>
+              <strong>Weird Modern Hits</strong>
+              Recent chart-toppers that break the optimized pattern.
+            </figcaption>
+          </figure>
+        </div>
+      </section>
+    </main>
+
+    <footer class="site-footer">
+      <p>
+        Data from
+        <a
+          href="https://www.kaggle.com/datasets/thedevastator/billboard-hot-100-audio-features"
+          >Billboard Hot 100 with Spotify audio features</a
+        >
+        · <a href="index.html">Back to visualization</a>
+      </p>
+    </footer>
+  </body>
+</html>
