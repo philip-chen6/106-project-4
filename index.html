@@ -11,11 +11,7 @@
     <header class="hero hero-compact">
       <nav>
         <a href="index.html" class="nav-active">Prototype</a>
-        <a href="proposal.html">Prototype Writeup</a>
-        <a href="proposal.html#proposal">Project proposal</a>
-        <a href="proposal.html#dataset">Dataset</a>
-        <a href="proposal.html#writeup">Prototype writeup</a>
-        <a href="proposal.html#charts">Proposal visualizations</a>
+        <a href="proposal.html">Project Proposal</a>
       </nav>
       <section class="hero-grid hero-grid-compact">
         <div>
@@ -45,6 +41,39 @@
     </header>
 
     <main>
+      <section id="writeup" class="section prototype-writeup-section">
+        <div class="section-copy">
+          <h2>Prototype Writeup</h2>
+          <article class="writeup-block">
+            <h3>What have we done so far?</h3>
+            <p>
+              We have chosen a music-focused topic and built the project around
+              Billboard Hot 100 songs with Spotify audio features. We cleaned the
+              source data into one row per song, using each track's first Billboard
+              chart appearance as its year. We created summary CSVs for yearly
+              trends, era-level duration distributions, audio-feature diversity,
+              scatterplot samples, and modern outlier songs. We also built a
+              public webpage with D3 visualizations that show early patterns in
+              duration, danceability, energy, acousticness, valence, and unusual
+              modern hits.
+            </p>
+          </article>
+          <article class="writeup-block">
+            <h3>What will be the most challenging part to design and why?</h3>
+            <p>
+              The hardest design challenge will be turning the project from a set
+              of charts into a clear explorable explanation. The dataset can show
+              that hit songs changed over time, but it cannot prove that streaming
+              directly caused every change. We will need to design annotations and
+              interactions that make the evidence feel compelling without
+              overstating causality. We also need to help readers compare eras
+              without losing the song-level detail that makes the topic
+              interesting.
+            </p>
+          </article>
+        </div>
+      </section>
+
       <section class="scrolly" id="story">
         <div class="scrolly-steps">
           <article class="step step-intro" data-feature="duration_min">
@@ -201,7 +230,7 @@
         <aside class="profile-panel">
           <div id="native-profile" class="native-profile"></div>
           <div id="ideal-song" class="ideal-song" aria-label="Ideal era profile"></div>
-          <a href="proposal.html" class="step-link">View prototype writeup &amp; charts →</a>
+          <a href="proposal.html" class="step-link">View project proposal →</a>
           <a href="#deeper" class="step-link">Explore the full dataset ↓</a>
         </aside>
       </section>
@@ -234,7 +263,8 @@
           href="https://www.kaggle.com/datasets/thedevastator/billboard-hot-100-audio-features"
           >Billboard Hot 100 with Spotify audio features</a
         >
-        · <a href="proposal.html">Prototype writeup</a>
+        · <a href="#writeup">Prototype writeup</a>
+        · <a href="proposal.html">Project proposal</a>
       </p>
     </footer>
 

@@ -538,6 +538,18 @@ h1 {
   border-top: 1px solid var(--line);
 }
 
+.prototype-writeup-section {
+  display: block;
+  padding-top: 56px;
+  padding-bottom: 56px;
+  border-top: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
+}
+
+.prototype-writeup-section .section-copy {
+  max-width: 860px;
+}
+
 .proposal-section {
   display: block;
   padding-top: 48px;
