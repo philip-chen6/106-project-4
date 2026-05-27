@@ -13,6 +13,7 @@
         <a href="#proposal">Proposal</a>
         <a href="#dataset">Dataset</a>
         <a href="#team">Team</a>
+        <a href="#prototype">Prototype</a>
         <a href="#visualizations">Visualizations</a>
       </nav>
       <section class="hero-grid">
@@ -107,7 +108,47 @@
         </div>
         <aside class="question-box" id="team">
           <h3>Team Members</h3>
-          <p>Philip Chen and teammate name to add before submission.</p>
+          <p>Philip Chen and project teammate.</p>
+        </aside>
+      </section>
+
+      <section id="prototype" class="section">
+        <div class="section-copy">
+          <h2>Initial Prototype</h2>
+          <article class="writeup-block">
+            <h3>What have we done so far?</h3>
+            <p>
+              We have chosen a music-focused topic and built the project around
+              Billboard Hot 100 songs with Spotify audio features. We cleaned
+              the source data into one row per song, using each track's first
+              Billboard chart appearance as its year. We created summary CSVs
+              for yearly trends, era-level duration distributions, audio-feature
+              diversity, scatterplot samples, and modern outlier songs. We also
+              built a public webpage with D3 visualizations that show early
+              patterns in duration, danceability, energy, acousticness, valence,
+              and unusual modern hits.
+            </p>
+          </article>
+          <article class="writeup-block">
+            <h3>What will be the most challenging part to design and why?</h3>
+            <p>
+              The hardest design challenge will be turning the project from a
+              set of charts into a clear explorable explanation. The dataset can
+              show that hit songs changed over time, but it cannot prove that
+              streaming directly caused every change. We will need to design
+              annotations and interactions that make the evidence feel
+              compelling without overstating causality. We also need to help
+              readers compare eras without losing the song-level detail that
+              makes the topic interesting.
+            </p>
+          </article>
+        </div>
+        <aside class="question-box">
+          <h3>Prototype Goal</h3>
+          <p>
+            The current prototype focuses on making the dataset visible,
+            testable, and interactive before we refine the final narrative.
+          </p>
         </aside>
       </section>
 
@@ -165,7 +206,13 @@
           <article class="chart-card">
             <div class="chart-heading">
               <h3>4. Duration vs. Energy</h3>
-              <p>Are newer hits shorter and more immediate?</p>
+              <p>Use the era buttons to highlight one part of the timeline.</p>
+            </div>
+            <div class="era-controls" aria-label="Filter scatterplot by era">
+              <button type="button" data-era="All" aria-pressed="true">All</button>
+              <button type="button" data-era="Pre-streaming">Pre-streaming</button>
+              <button type="button" data-era="Streaming growth">Streaming growth</button>
+              <button type="button" data-era="Streaming native">Streaming native</button>
             </div>
             <div id="scatter" class="chart"></div>
           </article>

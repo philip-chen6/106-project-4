@@ -22,6 +22,9 @@ const colors = {
 };
 
 const tooltip = d3.select("#tooltip");
+const state = {
+  activeEra: "All",
+};
 
 function parseRow(row) {
   const parsed = { ...row };
@@ -210,7 +213,7 @@ function scatterPlot(data) {
     .attr("cy", (d) => y(d.energy))
     .attr("r", 2.5)
     .attr("fill", (d) => colors.eras[d.era])
-    .attr("opacity", 0.28)
+    .attr("opacity", (d) => (state.activeEra === "All" || d.era === state.activeEra ? 0.3 : 0.05))
     .on("mouseenter", function (event, d) {
       d3.select(this).attr("opacity", 0.95).attr("r", 5);
       showTip(
@@ -221,7 +224,9 @@ function scatterPlot(data) {
       );
     })
     .on("mouseleave", function () {
-      d3.select(this).attr("opacity", 0.28).attr("r", 2.5);
+      d3.select(this)
+        .attr("opacity", (d) => (state.activeEra === "All" || d.era === state.activeEra ? 0.3 : 0.05))
+        .attr("r", 2.5);
       hideTip();
     });
 
@@ -349,6 +354,13 @@ async function init() {
     color: colors.green,
   });
   renderOutliers(outliers);
+
+  d3.selectAll("[data-era]").on("click", function () {
+    state.activeEra = this.dataset.era;
+    d3.selectAll("[data-era]").attr("aria-pressed", "false");
+    d3.select(this).attr("aria-pressed", "true");
+    scatterPlot(scatter);
+  });
 
   window.addEventListener(
     "resize",

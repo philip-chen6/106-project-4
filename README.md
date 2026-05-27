@@ -1,13 +1,13 @@
 # Music to My Ears: Designed Not to Be Skipped
 
-DSC 106 final project proposal prototype.
+DSC 106 final project proposal and initial prototype.
 
 This explorable explanation asks whether Billboard Hot 100 songs show signs of becoming more optimized for instant attention in the streaming era.
 
 ## Proposal
 
 - Project title: Music to My Ears: Designed Not to Be Skipped
-- Team members: Philip Chen and teammate name to add before submission
+- Team members: Philip Chen and project teammate
 - Dataset: Billboard Hot weekly charts with Spotify audio features
 - Static visualizations: six D3 charts on the proposal page
 
@@ -39,3 +39,11 @@ Then open `http://localhost:8000`.
 - 5-10 line project writeup
 - Six static proposal visualizations
 - Initial explorable explanation structure for the final web page
+
+## Initial Prototype Requirements Covered
+
+- Webpage: GitHub Pages serves the project page
+- GitHub repo: public-facing repo at `philip-chen6/106-project-4`
+- Visualization: D3 charts render from processed CSV data
+- Interaction: the duration vs. energy chart includes era filter buttons, and charts include hover details
+- Writeup: the page answers both required prototype questions with at least four sentences each
