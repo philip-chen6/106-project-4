@@ -7,7 +7,7 @@ This explorable explanation asks whether Billboard Hot 100 songs show signs of b
 ## Proposal
 
 - Project title: Music to My Ears: Designed Not to Be Skipped
-- Team members: Philip Chen and project teammate
+- Team members: Philip Chen, Elyse Wong, and Kyle Zhao
 - Dataset: Billboard Hot weekly charts with Spotify audio features
 - Static visualizations: six D3 charts on the proposal page
 
