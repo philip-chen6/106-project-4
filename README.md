@@ -32,6 +32,11 @@ python3 -m http.server 8000
 
 Then open `http://localhost:8000`.
 
+## Pages
+
+- **Prototype** (interactive scrolly): `http://localhost:8000/`
+- **Prototype Writeup** (proposal text and interactive D3 charts): `http://localhost:8000/proposal.html`
+
 ## Proposal Requirements Covered
 
 - Project title

@@ -1,8 +1,5 @@
 const files = {
   yearly: "data/processed/yearly.csv",
-  diversity: "data/processed/diversity.csv",
-  durationDist: "data/processed/duration_distribution.csv",
-  scatter: "data/processed/duration_energy_scatter.csv",
   outliers: "data/processed/outliers.csv",
   eraSummary: "data/processed/era_summary.csv",
   songs: "data/processed/songs.csv",
@@ -77,8 +74,6 @@ const featureMeta = {
 
 const tooltip = d3.select("#tooltip");
 
-let scatterData = [];
-let scatterEraFilter = "all";
 let eraSummaryData = [];
 let yearlyData = [];
 let songsData = [];
@@ -368,197 +363,6 @@ function featureSparkline(yearly, eraSummary, featureKey, options = {}) {
     .call((axis) => axis.selectAll("text").attr("dx", "-6px"));
 
   addVerticalYAxisLabel(svg, margin, innerHeight, meta.axisLabel, layout.labelOffset);
-}
-
-function lineChart(selector, data, key, options = {}) {
-  const frame = chartFrame(selector);
-  if (!frame) return;
-
-  const { g, innerWidth, innerHeight } = frame;
-  const x = d3
-    .scaleLinear()
-    .domain(d3.extent(data, (d) => d.year))
-    .range([0, innerWidth]);
-  const y = d3
-    .scaleLinear()
-    .domain(d3.extent(data, (d) => d[key]))
-    .nice()
-    .range([innerHeight, 0]);
-
-  addGrid(g, x, y, innerWidth, innerHeight);
-
-  g.append("path")
-    .datum(data)
-    .attr("fill", "none")
-    .attr("stroke", options.color || colors.accent)
-    .attr("stroke-width", 2.6)
-    .attr(
-      "d",
-      d3
-        .line()
-        .x((d) => x(d.year))
-        .y((d) => y(d[key]))
-        .curve(d3.curveMonotoneX)
-    );
-
-  g.append("g")
-    .attr("class", "axis")
-    .attr("transform", `translate(0,${innerHeight})`)
-    .call(d3.axisBottom(x).tickFormat(d3.format("d")).ticks(7));
-
-  g.append("g")
-    .attr("class", "axis")
-    .call(d3.axisLeft(y).ticks(5).tickFormat(options.format || undefined));
-
-  g.append("line")
-    .attr("x1", x(2010))
-    .attr("x2", x(2010))
-    .attr("y1", 0)
-    .attr("y2", innerHeight)
-    .attr("stroke", colors.ink)
-    .attr("stroke-dasharray", "4 4")
-    .attr("opacity", 0.5);
-
-  g.append("line")
-    .attr("x1", x(2020))
-    .attr("x2", x(2020))
-    .attr("y1", 0)
-    .attr("y2", innerHeight)
-    .attr("stroke", colors.accent)
-    .attr("stroke-dasharray", "4 4")
-    .attr("opacity", 0.4);
-
-  g.append("text")
-    .attr("class", "annotation")
-    .attr("x", Math.min(x(2010) + 8, innerWidth - 130))
-    .attr("y", 15)
-    .text("2010 · streaming growth");
-
-  g.append("text")
-    .attr("class", "annotation")
-    .attr("x", Math.min(x(2020) + 8, innerWidth - 130))
-    .attr("y", 30)
-    .text("2020 · streaming native");
-
-  g.selectAll("circle")
-    .data(data)
-    .join("circle")
-    .attr("cx", (d) => x(d.year))
-    .attr("cy", (d) => y(d[key]))
-    .attr("r", 3.2)
-    .attr("fill", options.color || colors.accent)
-    .attr("opacity", 0)
-    .on("mouseenter", function (event, d) {
-      d3.select(this).attr("opacity", 1);
-      showTip(event, `<strong>${d.year}</strong><br>${options.label}: ${options.value(d[key])}`);
-    })
-    .on("mouseleave", function () {
-      d3.select(this).attr("opacity", 0);
-      hideTip();
-    });
-}
-
-function durationBars(data) {
-  const frame = chartFrame("#duration-bars", { top: 16, right: 16, bottom: 70, left: 48 });
-  if (!frame) return;
-
-  const { g, innerWidth, innerHeight } = frame;
-  const buckets = [...new Set(data.map((d) => d.duration_bucket))];
-  const x0 = d3.scaleBand().domain(buckets).range([0, innerWidth]).padding(0.18);
-  const x1 = d3.scaleBand().domain(eraOrder).range([0, x0.bandwidth()]).padding(0.08);
-  const y = d3.scaleLinear().domain([0, d3.max(data, (d) => d.share)]).nice().range([innerHeight, 0]);
-
-  addGrid(g, x0, y, innerWidth, innerHeight);
-
-  g.append("g")
-    .selectAll("g")
-    .data(d3.group(data, (d) => d.duration_bucket))
-    .join("g")
-    .attr("transform", ([bucket]) => `translate(${x0(bucket)},0)`)
-    .selectAll("rect")
-    .data(([, values]) => values)
-    .join("rect")
-    .attr("x", (d) => x1(d.era))
-    .attr("y", (d) => y(d.share))
-    .attr("width", x1.bandwidth())
-    .attr("height", (d) => innerHeight - y(d.share))
-    .attr("fill", (d) => colors.eras[d.era])
-    .on("mouseenter", (event, d) => {
-      showTip(
-        event,
-        `<strong>${d.era}</strong><br>${d.duration_bucket}: ${d3.format(".1%")(d.share)} of songs`
-      );
-    })
-    .on("mouseleave", hideTip);
-
-  g.append("g")
-    .attr("class", "axis")
-    .attr("transform", `translate(0,${innerHeight})`)
-    .call(d3.axisBottom(x0))
-    .selectAll("text")
-    .attr("transform", "rotate(-35)")
-    .attr("text-anchor", "end");
-
-  g.append("g").attr("class", "axis").call(d3.axisLeft(y).ticks(5).tickFormat(d3.format(".0%")));
-
-  const legend = g.append("g").attr("transform", `translate(${innerWidth - 148},8)`);
-  eraOrder.forEach((era, i) => {
-    const row = legend.append("g").attr("transform", `translate(0,${i * 19})`);
-    row.append("rect").attr("width", 10).attr("height", 10).attr("fill", colors.eras[era]);
-    row.append("text").attr("x", 16).attr("y", 10).attr("class", "annotation").text(era);
-  });
-}
-
-function scatterPlot(data, eraFilter = "all") {
-  const filtered =
-    eraFilter === "all" ? data : data.filter((d) => d.era === eraFilter);
-  const frame = chartFrame("#scatter", { top: 16, right: 16, bottom: 44, left: 48 });
-  if (!frame) return;
-
-  const { g, innerWidth, innerHeight } = frame;
-  const x = d3.scaleLinear().domain([1, 7]).range([0, innerWidth]);
-  const y = d3.scaleLinear().domain([0, 1]).range([innerHeight, 0]);
-
-  addGrid(g, x, y, innerWidth, innerHeight);
-
-  g.selectAll("circle")
-    .data(filtered)
-    .join("circle")
-    .attr("cx", (d) => x(d.duration_min))
-    .attr("cy", (d) => y(d.energy))
-    .attr("r", 2.5)
-    .attr("fill", (d) => colors.eras[d.era])
-    .attr("opacity", 0.28)
-    .on("mouseenter", function (event, d) {
-      d3.select(this).attr("opacity", 0.95).attr("r", 5);
-      showTip(
-        event,
-        `<strong>${d.Song}</strong><br>${d.Performer}<br>${d.year}, ${d.duration_min.toFixed(
-          2
-        )} min, energy ${d.energy.toFixed(2)}`
-      );
-    })
-    .on("mouseleave", function () {
-      d3.select(this).attr("opacity", 0.28).attr("r", 2.5);
-      hideTip();
-    });
-
-  g.append("g")
-    .attr("class", "axis")
-    .attr("transform", `translate(0,${innerHeight})`)
-    .call(d3.axisBottom(x).ticks(6));
-  g.append("g").attr("class", "axis").call(d3.axisLeft(y).ticks(5));
-
-  g.append("text")
-    .attr("class", "annotation")
-    .attr("x", innerWidth - 105)
-    .attr("y", innerHeight + 36)
-    .text("Duration (minutes)");
-  g.append("text")
-    .attr("class", "annotation")
-    .attr("x", -42)
-    .attr("y", -6)
-    .text("Energy");
 }
 
 function renderOutliers(data) {
@@ -897,24 +701,9 @@ function setupScrolly() {
   steps[0]?.classList.add("is-active");
 }
 
-function setupEraFilters() {
-  const filters = document.querySelectorAll(".era-filter");
-  filters.forEach((btn) => {
-    btn.addEventListener("click", () => {
-      filters.forEach((b) => b.classList.remove("active"));
-      btn.classList.add("active");
-      scatterEraFilter = btn.dataset.era;
-      scatterPlot(scatterData, scatterEraFilter);
-    });
-  });
-}
-
 async function init() {
-  const [yearly, diversity, durationDist, scatter, outliers, eraSummary, songs] = await Promise.all([
+  const [yearly, outliers, eraSummary, songs] = await Promise.all([
     d3.csv(files.yearly, parseRow),
-    d3.csv(files.diversity, parseRow),
-    d3.csv(files.durationDist, parseRow),
-    d3.csv(files.scatter, parseRow),
     d3.csv(files.outliers, parseRow),
     d3.csv(files.eraSummary, parseRow),
     d3.csv(files.songs, parseRow),
@@ -922,71 +711,21 @@ async function init() {
 
   eraSummaryData = eraOrder.map((era) => eraSummary.find((d) => d.era === era));
   yearlyData = yearly;
-  scatterData = scatter;
   songsData = songs;
 
   setActiveFeature(activeEraFeature);
   setupFeaturePills();
   setupScrolly();
-
-  const durationLabel = {
-    label: "Average duration",
-    value: (d) => `${d.toFixed(2)} min`,
-    color: colors.accent,
-  };
-  lineChart("#duration-line", yearly, "duration_min", durationLabel);
-  durationBars(durationDist);
-  scatterPlot(scatter);
-  setupEraFilters();
-  lineChart("#diversity-line", diversity, "feature_diversity", {
-    label: "Feature diversity",
-    value: (d) => d.toFixed(3),
-    color: colors.green,
-  });
   renderOutliers(outliers);
   setProfileEra(profileEra);
   setupEraToggle();
-
-  const featureSelect = document.querySelector("#feature-select");
-  const featureLabels = {
-    danceability: "Danceability",
-    energy: "Energy",
-    loudness: "Loudness",
-    acousticness: "Acousticness",
-    valence: "Valence",
-    tempo: "Tempo",
-  };
-  const formatters = {
-    loudness: (d) => `${d.toFixed(1)} dB`,
-    tempo: (d) => `${d.toFixed(1)} BPM`,
-    default: (d) => d.toFixed(3),
-  };
-
-  function renderFeature() {
-    const key = featureSelect.value;
-    lineChart("#feature-line", yearly, key, {
-      label: featureLabels[key],
-      value: formatters[key] || formatters.default,
-      color: colors.blue,
-    });
-  }
-
-  featureSelect.addEventListener("change", renderFeature);
-  renderFeature();
 
   window.addEventListener(
     "resize",
     debounce(() => {
       setActiveFeature(activeEraFeature);
-      lineChart("#duration-line", yearly, "duration_min", durationLabel);
-      durationBars(durationDist);
-      scatterPlot(scatterData, scatterEraFilter);
-      lineChart("#diversity-line", diversity, "feature_diversity", {
-        label: "Feature diversity",
-        value: (d) => d.toFixed(3),
-        color: colors.green,
-      });
-      renderFeature();
+      renderOutliers(outliers);
+      setProfileEra(profileEra);
     }, 200)
   );
 }

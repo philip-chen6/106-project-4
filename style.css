@@ -31,8 +31,9 @@ a {
 
 nav {
   display: flex;
+  flex-wrap: wrap;
   justify-content: flex-end;
-  gap: 24px;
+  gap: 16px 24px;
   max-width: 1180px;
   margin: 0 auto 56px;
   padding: 24px 24px 0;
