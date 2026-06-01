@@ -526,6 +526,146 @@ h1 {
   margin-top: 0;
 }
 
+.mood-map-section {
+  padding-top: 48px;
+  padding-bottom: 72px;
+  border-top: 1px solid var(--line);
+}
+
+.mood-map-panel {
+  max-width: 1180px;
+  padding: 22px;
+  border: 1px solid var(--line);
+  background: var(--panel);
+  box-shadow: var(--shadow);
+}
+
+.mood-map-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 22px;
+  align-items: start;
+  margin-bottom: 16px;
+}
+
+.mood-map-head h3 {
+  margin-bottom: 6px;
+  font-size: 1.28rem;
+}
+
+.mood-map-head p {
+  max-width: 620px;
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.92rem;
+}
+
+.mood-era-controls {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.mood-era-controls button {
+  padding: 7px 11px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: white;
+  color: var(--muted);
+  font: inherit;
+  font-size: 0.8rem;
+  cursor: pointer;
+}
+
+.mood-era-controls button:hover {
+  border-color: var(--ink);
+  color: var(--ink);
+}
+
+.mood-era-controls button.active {
+  border-color: var(--ink);
+  background: var(--ink);
+  color: white;
+}
+
+.mood-map-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(220px, 0.32fr);
+  gap: 18px;
+  align-items: stretch;
+}
+
+.mood-map-chart {
+  min-height: 430px;
+}
+
+.quadrant-label {
+  fill: rgba(109, 103, 95, 0.72);
+  font-size: 11px;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.mood-detail {
+  padding: 18px;
+  border: 1px solid var(--line);
+  background: #faf7f0;
+}
+
+.mood-detail-kicker {
+  margin: 0 0 8px;
+  color: var(--accent);
+  font-size: 0.72rem;
+  font-weight: 900;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.mood-detail h4 {
+  margin: 0 0 6px;
+  color: var(--ink);
+  font-size: 1.45rem;
+  line-height: 1.05;
+}
+
+.mood-detail-artist {
+  margin: 0 0 14px;
+  color: var(--muted);
+  font-size: 0.92rem;
+}
+
+.mood-detail p {
+  color: var(--muted);
+  font-size: 0.92rem;
+}
+
+.mood-detail dl {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  margin: 16px 0;
+}
+
+.mood-detail dl div {
+  padding: 10px;
+  border: 1px solid var(--line);
+  background: white;
+}
+
+.mood-detail dt {
+  color: var(--muted);
+  font-size: 0.7rem;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.mood-detail dd {
+  margin: 4px 0 0;
+  color: var(--ink);
+  font-weight: 900;
+}
+
 .song-compare-panel {
   display: grid;
   grid-template-columns: minmax(240px, 0.36fr) minmax(280px, 0.64fr);
@@ -1395,6 +1535,19 @@ select {
   }
 
   .profile-panel {
+    grid-template-columns: 1fr;
+  }
+
+  .mood-map-head {
+    display: block;
+  }
+
+  .mood-era-controls {
+    justify-content: flex-start;
+    margin-top: 14px;
+  }
+
+  .mood-map-layout {
     grid-template-columns: 1fr;
   }
 

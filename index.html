@@ -183,6 +183,39 @@
         </div>
       </section>
 
+      <section id="mood-map-section" class="section visual-section mood-map-section">
+        <div class="section-intro">
+          <h2>Where do individual hits land?</h2>
+          <p>
+            The era averages show the direction of change. This song-level map
+            shows the spread: danceable songs can still be gloomy, and happy
+            songs do not always move.
+          </p>
+        </div>
+
+        <article class="mood-map-panel">
+          <div class="mood-map-head">
+            <div>
+              <h3>Danceability vs. Valence</h3>
+              <p>
+                Each dot is a sampled Hot 100 song. Valence approximates musical
+                positivity; danceability measures rhythmic movement.
+              </p>
+            </div>
+            <div class="mood-era-controls" role="group" aria-label="Filter mood map by era">
+              <button type="button" class="active" data-mood-era="All">All</button>
+              <button type="button" data-mood-era="Pre-streaming">Pre-streaming</button>
+              <button type="button" data-mood-era="Streaming growth">Growth</button>
+              <button type="button" data-mood-era="Streaming native">Native</button>
+            </div>
+          </div>
+          <div class="mood-map-layout">
+            <div id="mood-map" class="chart mood-map-chart"></div>
+            <aside id="mood-detail" class="mood-detail" aria-live="polite"></aside>
+          </div>
+        </article>
+      </section>
+
       <section class="section profile-section" id="native-profile-section">
         <div class="section-copy">
           <h2>What does a typical hit look like?</h2>

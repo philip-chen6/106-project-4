@@ -81,6 +81,9 @@ let profileEra = "Streaming native";
 let scrollLocked = false;
 let scrollLockTimer = null;
 let activeSongIndex = 0;
+let moodMapEra = "All";
+let moodMapSample = [];
+let activeMoodSong = null;
 
 const curatedSongs = [
   {
@@ -452,6 +455,194 @@ function escapeHTML(value) {
     .replaceAll(">", "&gt;")
     .replaceAll('"', "&quot;")
     .replaceAll("'", "&#039;");
+}
+
+function buildMoodMapSample(songs) {
+  const valid = songs.filter(
+    (d) =>
+      Number.isFinite(d.valence) &&
+      Number.isFinite(d.danceability) &&
+      Number.isFinite(d.energy) &&
+      Number.isFinite(d.year) &&
+      d.Song &&
+      d.Performer
+  );
+
+  const samples = [];
+  eraOrder.forEach((era) => {
+    const eraSongs = valid
+      .filter((d) => d.era === era)
+      .sort((a, b) => d3.ascending(a.year, b.year) || d3.ascending(a.best_rank, b.best_rank));
+    const target = era === "Streaming native" ? 360 : 720;
+    const stride = Math.max(1, Math.floor(eraSongs.length / target));
+    samples.push(...eraSongs.filter((d, i) => i % stride === 0).slice(0, target));
+  });
+
+  curatedSongs.forEach((curated) => {
+    const match = valid.find(
+      (d) =>
+        String(d.Song).toLowerCase() === curated.song.toLowerCase() &&
+        String(d.Performer).toLowerCase().includes(curated.performer.toLowerCase().split(" ")[0])
+    );
+    if (match && !samples.some((d) => d.SongID === match.SongID)) samples.push(match);
+  });
+
+  return samples;
+}
+
+function moodLabel(song) {
+  const mood = song.valence >= 0.55 ? "brighter" : "moodier";
+  const movement = song.danceability >= 0.62 ? "more danceable" : "less danceable";
+  return `${movement}, ${mood}`;
+}
+
+function renderMoodDetail(song) {
+  const container = d3.select("#mood-detail");
+  if (container.empty()) return;
+
+  if (!song) {
+    container.html(`
+      <p class="mood-detail-kicker">How to read it</p>
+      <h4>Pick a dot</h4>
+      <p>Hover or click a song to see how it combines rhythm and mood.</p>
+    `);
+    return;
+  }
+
+  container.html(`
+    <p class="mood-detail-kicker">${escapeHTML(song.era)} · ${song.year}</p>
+    <h4>${escapeHTML(song.Song)}</h4>
+    <p class="mood-detail-artist">${escapeHTML(song.Performer)}</p>
+    <p>${escapeHTML(moodLabel(song))}. This song's valence is ${song.valence.toFixed(
+      2
+    )}, while its danceability is ${song.danceability.toFixed(2)}.</p>
+    <dl>
+      <div><dt>Valence</dt><dd>${song.valence.toFixed(2)}</dd></div>
+      <div><dt>Danceability</dt><dd>${song.danceability.toFixed(2)}</dd></div>
+      <div><dt>Energy</dt><dd>${song.energy.toFixed(2)}</dd></div>
+      <div><dt>Peak</dt><dd>#${Math.round(song.best_rank)}</dd></div>
+    </dl>
+    <a class="listen-link" href="${toSpotifySearchUrl(song.Song, song.Performer)}" target="_blank" rel="noopener noreferrer">
+      Listen on Spotify
+    </a>
+  `);
+}
+
+function renderMoodMap() {
+  const frame = chartFrame("#mood-map", { top: 28, right: 28, bottom: 52, left: 58 });
+  if (!frame || !moodMapSample.length) return;
+
+  const { svg, g, innerWidth, innerHeight } = frame;
+  const filtered =
+    moodMapEra === "All" ? moodMapSample : moodMapSample.filter((d) => d.era === moodMapEra);
+  const x = d3.scaleLinear().domain([0, 1]).range([0, innerWidth]);
+  const y = d3.scaleLinear().domain([0, 1]).range([innerHeight, 0]);
+
+  addGrid(g, x, y, innerWidth, innerHeight);
+
+  g.append("line")
+    .attr("x1", x(0.5))
+    .attr("x2", x(0.5))
+    .attr("y1", 0)
+    .attr("y2", innerHeight)
+    .attr("stroke", "#d8d0c4")
+    .attr("stroke-dasharray", "4 4");
+
+  g.append("line")
+    .attr("x1", 0)
+    .attr("x2", innerWidth)
+    .attr("y1", y(0.5))
+    .attr("y2", y(0.5))
+    .attr("stroke", "#d8d0c4")
+    .attr("stroke-dasharray", "4 4");
+
+  const labels = [
+    { text: "moody + less danceable", x: 0.03, y: 0.1 },
+    { text: "bright + less danceable", x: 0.67, y: 0.1 },
+    { text: "moody + danceable", x: 0.03, y: 0.92 },
+    { text: "bright + danceable", x: 0.68, y: 0.92 },
+  ];
+
+  g.selectAll(".quadrant-label")
+    .data(labels)
+    .join("text")
+    .attr("class", "quadrant-label")
+    .attr("x", (d) => x(d.x))
+    .attr("y", (d) => y(d.y))
+    .text((d) => d.text);
+
+  g.selectAll(".mood-dot")
+    .data(filtered, (d) => d.SongID)
+    .join("circle")
+    .attr("class", "mood-dot")
+    .attr("cx", (d) => x(d.valence))
+    .attr("cy", (d) => y(d.danceability))
+    .attr("r", (d) => (activeMoodSong?.SongID === d.SongID ? 5.5 : 3.2))
+    .attr("fill", (d) => colors.eras[d.era])
+    .attr("opacity", (d) => (activeMoodSong?.SongID === d.SongID ? 1 : 0.34))
+    .on("mouseenter", function (event, d) {
+      d3.select(this).attr("opacity", 0.95).attr("r", 5.5);
+      showTip(
+        event,
+        `<strong>${escapeHTML(d.Song)}</strong><br>${escapeHTML(d.Performer)} · ${d.year}<br>Valence ${d.valence.toFixed(
+          2
+        )}, danceability ${d.danceability.toFixed(2)}`
+      );
+      renderMoodDetail(d);
+    })
+    .on("mouseleave", function (event, d) {
+      d3.select(this)
+        .attr("opacity", activeMoodSong?.SongID === d.SongID ? 1 : 0.34)
+        .attr("r", activeMoodSong?.SongID === d.SongID ? 5.5 : 3.2);
+      hideTip();
+      renderMoodDetail(activeMoodSong);
+    })
+    .on("click", (event, d) => {
+      activeMoodSong = d;
+      renderMoodDetail(d);
+      renderMoodMap();
+    });
+
+  g.append("g")
+    .attr("class", "axis")
+    .attr("transform", `translate(0,${innerHeight})`)
+    .call(d3.axisBottom(x).ticks(5));
+
+  g.append("g").attr("class", "axis").call(d3.axisLeft(y).ticks(5));
+
+  svg
+    .append("text")
+    .attr("class", "annotation axis-label-x")
+    .attr("x", 58 + innerWidth / 2)
+    .attr("y", 28 + innerHeight + 42)
+    .attr("text-anchor", "middle")
+    .text("Valence: moodier → brighter");
+
+  svg
+    .append("text")
+    .attr("class", "annotation axis-label-y")
+    .attr("text-anchor", "middle")
+    .attr("dominant-baseline", "middle")
+    .attr("transform", `translate(18, ${28 + innerHeight / 2}) rotate(-90)`)
+    .text("Danceability");
+
+  renderMoodDetail(activeMoodSong || filtered[0]);
+}
+
+function setupMoodMap() {
+  document.querySelectorAll("[data-mood-era]").forEach((button) => {
+    button.addEventListener("click", () => {
+      moodMapEra = button.dataset.moodEra;
+      document.querySelectorAll("[data-mood-era]").forEach((btn) => {
+        btn.classList.toggle("active", btn === button);
+      });
+      const currentVisible =
+        !activeMoodSong || moodMapEra === "All" || activeMoodSong.era === moodMapEra;
+      if (!currentVisible) activeMoodSong = null;
+      renderMoodMap();
+    });
+  });
+  renderMoodMap();
 }
 
 function renderSongCarousel() {
@@ -956,10 +1147,13 @@ async function init() {
   eraSummaryData = eraOrder.map((era) => eraSummary.find((d) => d.era === era));
   yearlyData = yearly;
   songsData = songs;
+  moodMapSample = buildMoodMapSample(songsData);
+  activeMoodSong = moodMapSample.find((d) => d.Song === "I Love You") || moodMapSample[0];
 
   setActiveFeature(activeEraFeature);
   setupFeaturePills();
   setupScrolly();
+  setupMoodMap();
   setProfileEra(profileEra);
   setupEraToggle();
   setupSongCarousel();
@@ -969,6 +1163,7 @@ async function init() {
     "resize",
     debounce(() => {
       setActiveFeature(activeEraFeature);
+      renderMoodMap();
       setProfileEra(profileEra);
       renderSongCarousel();
     }, 200)
