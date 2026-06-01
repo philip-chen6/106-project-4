@@ -496,6 +496,33 @@ function moodLabel(song) {
   return `${movement}, ${mood}`;
 }
 
+function getMoodMapCentroids(data) {
+  return eraOrder
+    .map((era) => {
+      const songs = data.filter((d) => d.era === era);
+      return {
+        era,
+        valence: d3.mean(songs, (d) => d.valence),
+        danceability: d3.mean(songs, (d) => d.danceability),
+        songs: songs.length,
+      };
+    })
+    .filter((d) => Number.isFinite(d.valence) && Number.isFinite(d.danceability));
+}
+
+function getPinnedMoodSongs(sample) {
+  return curatedSongs
+    .map((curated) => {
+      const exact = sample.find(
+        (d) =>
+          String(d.Song).toLowerCase() === curated.song.toLowerCase() &&
+          String(d.Performer).toLowerCase().includes(curated.performer.toLowerCase().split(" ")[0])
+      );
+      return exact ? { ...exact, pinLabel: curated.song } : null;
+    })
+    .filter(Boolean);
+}
+
 function renderMoodDetail(song) {
   const container = d3.select("#mood-detail");
   if (container.empty()) return;
@@ -537,6 +564,22 @@ function renderMoodMap() {
     moodMapEra === "All" ? moodMapSample : moodMapSample.filter((d) => d.era === moodMapEra);
   const x = d3.scaleLinear().domain([0, 1]).range([0, innerWidth]);
   const y = d3.scaleLinear().domain([0, 1]).range([innerHeight, 0]);
+  const centroids = getMoodMapCentroids(filtered);
+  const pinnedSongs = getPinnedMoodSongs(filtered);
+
+  svg
+    .append("defs")
+    .append("marker")
+    .attr("id", "mood-arrowhead")
+    .attr("viewBox", "0 0 10 10")
+    .attr("refX", 8)
+    .attr("refY", 5)
+    .attr("markerWidth", 7)
+    .attr("markerHeight", 7)
+    .attr("orient", "auto-start-reverse")
+    .append("path")
+    .attr("d", "M 0 0 L 10 5 L 0 10 z")
+    .attr("fill", colors.ink);
 
   addGrid(g, x, y, innerWidth, innerHeight);
 
@@ -571,7 +614,10 @@ function renderMoodMap() {
     .attr("y", (d) => y(d.y))
     .text((d) => d.text);
 
-  g.selectAll(".mood-dot")
+  const cloud = g.append("g").attr("class", "mood-cloud");
+
+  cloud
+    .selectAll(".mood-dot")
     .data(filtered, (d) => d.SongID)
     .join("circle")
     .attr("class", "mood-dot")
@@ -602,6 +648,100 @@ function renderMoodMap() {
       renderMoodDetail(d);
       renderMoodMap();
     });
+
+  if (centroids.length > 1 && moodMapEra === "All") {
+    const pathLine = d3
+      .line()
+      .x((d) => x(d.valence))
+      .y((d) => y(d.danceability))
+      .curve(d3.curveCatmullRom.alpha(0.5));
+
+    g.append("path")
+      .datum(centroids)
+      .attr("class", "mood-shift-arrow")
+      .attr("d", pathLine)
+      .attr("fill", "none")
+      .attr("stroke", colors.ink)
+      .attr("stroke-width", 3)
+      .attr("stroke-linecap", "round")
+      .attr("stroke-linejoin", "round")
+      .attr("marker-end", "url(#mood-arrowhead)");
+  }
+
+  const centroid = g.append("g").attr("class", "mood-centroids");
+  const centroidGroups = centroid
+    .selectAll(".mood-centroid")
+    .data(centroids)
+    .join("g")
+    .attr("class", "mood-centroid")
+    .attr("transform", (d) => `translate(${x(d.valence)},${y(d.danceability)})`)
+    .on("mouseenter", (event, d) => {
+      showTip(
+        event,
+        `<strong>${d.era} average</strong><br>Valence ${d.valence.toFixed(
+          2
+        )}<br>Danceability ${d.danceability.toFixed(2)}`
+      );
+    })
+    .on("mouseleave", hideTip);
+
+  centroidGroups
+    .append("circle")
+    .attr("r", 13)
+    .attr("fill", (d) => colors.eras[d.era])
+    .attr("stroke", "white")
+    .attr("stroke-width", 3);
+
+  centroidGroups
+    .append("text")
+    .attr("x", 16)
+    .attr("y", 4)
+    .text((d) => d.era.replace("Streaming ", ""))
+    .attr("class", "mood-centroid-label");
+
+  const pinned = g.append("g").attr("class", "mood-pins");
+  const pinGroups = pinned
+    .selectAll(".mood-pin")
+    .data(pinnedSongs, (d) => d.SongID)
+    .join("g")
+    .attr("class", "mood-pin")
+    .attr("transform", (d) => `translate(${x(d.valence)},${y(d.danceability)})`)
+    .on("mouseenter", (event, d) => {
+      showTip(event, `<strong>${escapeHTML(d.Song)}</strong><br>${escapeHTML(d.Performer)} · ${d.year}`);
+      renderMoodDetail(d);
+    })
+    .on("mouseleave", () => {
+      hideTip();
+      renderMoodDetail(activeMoodSong);
+    })
+    .on("click", (event, d) => {
+      activeMoodSong = d;
+      renderMoodDetail(d);
+      renderMoodMap();
+    });
+
+  pinGroups
+    .append("circle")
+    .attr("r", 6)
+    .attr("fill", (d) => colors.eras[d.era])
+    .attr("stroke", colors.ink)
+    .attr("stroke-width", 1.5);
+
+  pinGroups
+    .append("line")
+    .attr("x1", 7)
+    .attr("x2", 24)
+    .attr("y1", -7)
+    .attr("y2", -19)
+    .attr("stroke", colors.ink)
+    .attr("stroke-width", 1);
+
+  pinGroups
+    .append("text")
+    .attr("class", "mood-pin-label")
+    .attr("x", 28)
+    .attr("y", -21)
+    .text((d) => d.pinLabel);
 
   g.append("g")
     .attr("class", "axis")
