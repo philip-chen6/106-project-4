@@ -1,6 +1,5 @@
 const files = {
   yearly: "data/processed/yearly.csv",
-  outliers: "data/processed/outliers.csv",
   eraSummary: "data/processed/era_summary.csv",
   songs: "data/processed/songs.csv",
 };
@@ -28,7 +27,7 @@ const featureMeta = {
     tickFormat: (d) => d.toFixed(2),
     format: (d) => `${d.toFixed(2)} min`,
     caption:
-      "Streaming-native hits are shorter on average — a pattern consistent with songs designed to hook listeners before they skip.",
+      "Streaming-native hits are shorter on average — a pattern consistent with songs that need to hook listeners before they skip.",
   },
   danceability: {
     label: "Danceability",
@@ -52,7 +51,7 @@ const featureMeta = {
     tickFormat: (d) => d.toFixed(1),
     format: (d) => `${d.toFixed(1)} dB`,
     caption:
-      "Modern hits are louder. The loudness war didn't end with streaming — if anything, chart-toppers got punchier.",
+      "Modern hits are louder. Chart-toppers got punchier as listening shifted through phones, earbuds, and playlists.",
   },
   acousticness: {
     label: "Acousticness",
@@ -81,6 +80,82 @@ let activeEraFeature = "duration_min";
 let profileEra = "Streaming native";
 let scrollLocked = false;
 let scrollLockTimer = null;
+let activeSongIndex = 0;
+
+const curatedSongs = [
+  {
+    song: "I Love You",
+    performer: "Billie Eilish",
+    year: 2019,
+    duration_min: 4.863266666666667,
+    energy: 0.131,
+    danceability: 0.421,
+    acousticness: 0.952,
+    best_rank: 53,
+    why:
+      "A quiet, slow Billie Eilish ballad still charted in an era where the average hit was getting shorter and more rhythm-forward.",
+  },
+  {
+    song: "Video Games",
+    performer: "Lana Del Rey",
+    year: 2012,
+    duration_min: 4.699333333333334,
+    energy: 0.249,
+    danceability: 0.236,
+    acousticness: 0.811,
+    best_rank: 91,
+    why:
+      "This song is cinematic, slow, and low-energy, which makes it a useful counterexample to the idea that every modern hit chases instant motion.",
+  },
+  {
+    song: "Fear.",
+    performer: "Kendrick Lamar",
+    year: 2017,
+    duration_min: 7.676216666666667,
+    energy: 0.479,
+    danceability: 0.588,
+    acousticness: 0.604,
+    best_rank: 50,
+    why:
+      "At over seven minutes, Kendrick Lamar's track breaks the short-song pattern while still reaching the Hot 100.",
+  },
+  {
+    song: "Marvins Room",
+    performer: "Drake",
+    year: 2011,
+    duration_min: 5.7871,
+    energy: 0.26,
+    danceability: 0.492,
+    acousticness: 0.646,
+    best_rank: 21,
+    why:
+      "Drake's moody, spacious track shows that emotional atmosphere can still compete with the punchier profile of streaming-era hits.",
+  },
+  {
+    song: "Last Kiss",
+    performer: "Taylor Swift",
+    year: 2010,
+    duration_min: 6.118883333333334,
+    energy: 0.341,
+    danceability: 0.371,
+    acousticness: 0.57,
+    best_rank: 71,
+    why:
+      "A six-minute Taylor Swift ballad sits right at the streaming-growth boundary, showing what the average trend started moving away from.",
+  },
+  {
+    song: "close",
+    performer: "J. Cole",
+    year: 2021,
+    duration_min: 6.827333333333334,
+    energy: 0.185,
+    danceability: 0.613,
+    acousticness: 0.853,
+    best_rank: 33,
+    why:
+      "A long, quiet 2021 chart entry helps separate the overall streaming-native pattern from the individual songs that bend it.",
+  },
+];
 
 function parseRow(row) {
   const parsed = { ...row };
@@ -365,33 +440,202 @@ function featureSparkline(yearly, eraSummary, featureKey, options = {}) {
   addVerticalYAxisLabel(svg, margin, innerHeight, meta.axisLabel, layout.labelOffset);
 }
 
-function renderOutliers(data) {
-  const container = d3.select("#outliers");
-  if (container.empty()) return;
-
-  const format = d3.format(".2f");
-  container
-    .selectAll(".outlier")
-    .data(data.slice(0, 9))
-    .join("div")
-    .attr("class", "outlier")
-    .html(
-      (d) => `
-        <strong>${d.Song}</strong>
-        <span>${d.Performer} · ${d.year}</span>
-        <dl>
-          <dt>Duration</dt><dd>${format(d.duration_min)} min</dd>
-          <dt>Energy</dt><dd>${format(d.energy)}</dd>
-          <dt>Acoustic</dt><dd>${format(d.acousticness)}</dd>
-          <dt>Peak</dt><dd>#${Math.round(d.best_rank)}</dd>
-        </dl>
-      `
-    );
-}
-
 function toSpotifySearchUrl(song, performer) {
   const query = encodeURIComponent(`${song} ${performer}`);
   return `https://open.spotify.com/search/${query}`;
+}
+
+function escapeHTML(value) {
+  return String(value)
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#039;");
+}
+
+function renderSongCarousel() {
+  const container = d3.select("#song-card");
+  const dots = d3.select("#song-dots");
+  if (container.empty()) return;
+
+  const song = curatedSongs[activeSongIndex];
+  const metrics = [
+    { label: "Duration", value: `${song.duration_min.toFixed(2)} min` },
+    { label: "Energy", value: song.energy.toFixed(2) },
+    { label: "Danceability", value: song.danceability.toFixed(2) },
+    { label: "Acousticness", value: song.acousticness.toFixed(2) },
+    { label: "Peak", value: `#${Math.round(song.best_rank)}` },
+  ];
+
+  container.html(`
+    <div class="song-card-kicker">Curated exception ${activeSongIndex + 1} of ${curatedSongs.length}</div>
+    <div class="song-card-main">
+      <div>
+        <h3>${song.song}</h3>
+        <p class="song-artist">${song.performer} · ${song.year}</p>
+      </div>
+      <a class="listen-link" href="${toSpotifySearchUrl(song.song, song.performer)}" target="_blank" rel="noopener noreferrer">
+        Listen on Spotify
+      </a>
+    </div>
+    <p class="song-why">${song.why}</p>
+    <dl class="song-metrics">
+      ${metrics.map((metric) => `<div><dt>${metric.label}</dt><dd>${metric.value}</dd></div>`).join("")}
+    </dl>
+  `);
+
+  if (!dots.empty()) {
+    dots
+      .selectAll("button")
+      .data(curatedSongs)
+      .join("button")
+      .attr("type", "button")
+      .attr("aria-label", (d, i) => `Show ${d.song} by ${d.performer}`)
+      .attr("aria-current", (d, i) => (i === activeSongIndex ? "true" : "false"))
+      .on("click", (event, d) => {
+        activeSongIndex = curatedSongs.indexOf(d);
+        renderSongCarousel();
+      });
+  }
+}
+
+function setupSongCarousel() {
+  const prev = document.querySelector("#prev-song");
+  const next = document.querySelector("#next-song");
+  if (!prev || !next) return;
+
+  prev.addEventListener("click", () => {
+    activeSongIndex = (activeSongIndex - 1 + curatedSongs.length) % curatedSongs.length;
+    renderSongCarousel();
+  });
+  next.addEventListener("click", () => {
+    activeSongIndex = (activeSongIndex + 1) % curatedSongs.length;
+    renderSongCarousel();
+  });
+  renderSongCarousel();
+}
+
+function getSongLabel(song) {
+  return `${song.Song} ${song.Performer}`.toLowerCase();
+}
+
+function findSongMatch(query) {
+  const normalized = query.trim().toLowerCase();
+  if (!normalized) return null;
+  const tokens = normalized.split(/\s+/).filter(Boolean);
+
+  let best = null;
+  let bestScore = -Infinity;
+
+  songsData.forEach((song) => {
+    const title = String(song.Song || "").toLowerCase();
+    const performer = String(song.Performer || "").toLowerCase();
+    const label = `${title} ${performer}`;
+    let score = 0;
+
+    if (title === normalized) score += 140;
+    if (performer === normalized) score += 95;
+    if (label.includes(normalized)) score += 80;
+    if (title.includes(normalized)) score += 55;
+    if (performer.includes(normalized)) score += 40;
+    tokens.forEach((token) => {
+      if (label.includes(token)) score += 8;
+    });
+    if (Number.isFinite(song.best_rank)) score += (101 - song.best_rank) / 25;
+    if (Number.isFinite(song.max_weeks_on_chart)) score += Math.min(song.max_weeks_on_chart, 40) / 20;
+
+    if (score > bestScore) {
+      best = song;
+      bestScore = score;
+    }
+  });
+
+  return bestScore > 0 ? best : null;
+}
+
+function renderSongComparison(song) {
+  const container = d3.select("#song-compare-result");
+  if (container.empty()) return;
+
+  if (!song) {
+    container.html(`
+      <p class="compare-empty">Type a song or artist above to compare it with the average hit from the same chart year.</p>
+    `);
+    return;
+  }
+
+  const yearRow = yearlyData.find((d) => d.year === song.year);
+  const eraRow = eraSummaryData.find((d) => d?.era === song.era);
+  if (!yearRow || !eraRow) {
+    container.html(`
+      <p class="compare-empty">We found ${escapeHTML(song.Song)}, but do not have a complete yearly baseline for it.</p>
+    `);
+    return;
+  }
+
+  const compareFeatures = ["duration_min", "danceability", "energy", "acousticness", "valence"];
+  const rows = compareFeatures.map((key) => {
+    const meta = featureMeta[key];
+    const songValue = song[key];
+    const yearValue = yearRow[key];
+    const eraValue = eraRow[key];
+    const values = [songValue, yearValue, eraValue].filter((d) => Number.isFinite(d));
+    const min = d3.min(values);
+    const max = d3.max(values);
+    const songPct = barPct(normalizeWithBounds(songValue, min, max));
+    const yearPct = barPct(normalizeWithBounds(yearValue, min, max));
+    const delta = songValue - yearValue;
+    return `
+      <div class="compare-metric">
+        <div class="compare-metric-head">
+          <strong>${meta.label}</strong>
+          <span>${meta.format(songValue)} · ${formatDelta(key, delta)} vs ${song.year}</span>
+        </div>
+        <div class="compare-bars">
+          <div>
+            <span>Song</span>
+            <i style="width:${songPct}%"></i>
+          </div>
+          <div>
+            <span>${song.year} avg</span>
+            <i class="year-bar" style="width:${yearPct}%"></i>
+          </div>
+        </div>
+      </div>
+    `;
+  });
+
+  container.html(`
+    <div class="compare-result-head">
+      <div>
+        <p class="compare-kicker">${escapeHTML(song.era)} · first charted ${song.year}</p>
+        <h4>${escapeHTML(song.Song)}</h4>
+        <p>${escapeHTML(song.Performer)} · peak #${Math.round(song.best_rank)}</p>
+      </div>
+      <a class="listen-link" href="${toSpotifySearchUrl(song.Song, song.Performer)}" target="_blank" rel="noopener noreferrer">
+        Listen on Spotify
+      </a>
+    </div>
+    <p class="compare-note">
+      This is not an “ideal song” score. It shows how one real hit differs from the average Hot 100 song in the same year.
+    </p>
+    <div class="compare-metrics">${rows.join("")}</div>
+  `);
+}
+
+function setupSongCompare() {
+  const form = document.querySelector("#song-compare-form");
+  const input = document.querySelector("#song-search");
+  if (!form || !input) return;
+
+  form.addEventListener("submit", (event) => {
+    event.preventDefault();
+    renderSongComparison(findSongMatch(input.value));
+  });
+
+  input.value = "I Love You Billie Eilish";
+  renderSongComparison(findSongMatch(input.value));
 }
 
 function normalizeFeatureValue(featureKey, value, yearly) {
@@ -601,12 +845,13 @@ function renderIdealSong(eraSummary, eraName) {
     "Streaming growth":
       "As streaming grew, hits shifted toward louder, more danceable, higher-energy tracks — optimized for playlists and quick engagement.",
     "Streaming native":
-      "In the streaming-native era, hits are shorter, punchier, and highly danceable, with lower acousticness and moodier valence — built to avoid skips.",
+      "In the streaming-native era, hits are shorter, punchier, and highly danceable, with lower acousticness and moodier valence — consistent with a skip-aware attention economy.",
   }[eraName];
 
   container.selectAll("*").remove();
 
   container.append("p").attr("class", "ideal-title").text(`An “ideal hit” profile for ${eraName} (from averages)`);
+  container.append("p").attr("class", "ideal-kicker").text("Era baseline, not a literal perfect song");
   container.append("p").attr("class", "ideal-subtitle").text(eraBlurb);
   container
     .append("p")
@@ -702,9 +947,8 @@ function setupScrolly() {
 }
 
 async function init() {
-  const [yearly, outliers, eraSummary, songs] = await Promise.all([
+  const [yearly, eraSummary, songs] = await Promise.all([
     d3.csv(files.yearly, parseRow),
-    d3.csv(files.outliers, parseRow),
     d3.csv(files.eraSummary, parseRow),
     d3.csv(files.songs, parseRow),
   ]);
@@ -716,16 +960,17 @@ async function init() {
   setActiveFeature(activeEraFeature);
   setupFeaturePills();
   setupScrolly();
-  renderOutliers(outliers);
   setProfileEra(profileEra);
   setupEraToggle();
+  setupSongCarousel();
+  setupSongCompare();
 
   window.addEventListener(
     "resize",
     debounce(() => {
       setActiveFeature(activeEraFeature);
-      renderOutliers(outliers);
       setProfileEra(profileEra);
+      renderSongCarousel();
     }, 200)
   );
 }

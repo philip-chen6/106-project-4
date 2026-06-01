@@ -34,7 +34,7 @@ Then open `http://localhost:8000`.
 
 ## Pages
 
-- **Prototype** (interactive scrolly): `http://localhost:8000/`
+- **Prototype** (interactive scrolly + song comparison + curated song carousel): `http://localhost:8000/`
 - **Prototype Writeup** (proposal text and interactive D3 charts): `http://localhost:8000/proposal.html`
 
 ## Proposal Requirements Covered
