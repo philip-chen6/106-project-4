@@ -27,22 +27,27 @@ For the proposal page, `scripts/prepare_data.py` downloads the Kaggle dataset wi
 ```bash
 python3 -m pip install --user kagglehub pandas
 python3 scripts/prepare_data.py
+python3 scripts/prepare_spotify_radar.py
 python3 -m http.server 8000
 ```
+
+`prepare_spotify_radar.py` builds artist averages and a Billboard-artist track lookup from the [Spotify 1.2M+ songs dataset](https://www.kaggle.com/datasets/rodolfofigueroa/spotify-12m-songs) (via `kagglehub`, or place `tracks_features.csv` in `data/raw/`). Track rows include `release_year` and streaming era for the radar chart.
 
 Then open `http://localhost:8000`.
 
 ## Pages
 
-- **Prototype** (interactive scrolly + mood map + song comparison + curated song carousel): `http://localhost:8000/`
-- **Prototype Writeup** (proposal text and interactive D3 charts): `http://localhost:8000/proposal.html`
+- **Prototype** (interactive scrolly, D3 hit profiles, radar comparison, song carousel): `http://localhost:8000/`
+- **Proposal** (proposal text and interactive D3 charts): `http://localhost:8000/proposal.html`
+
+All in-browser charts and visualizations are rendered with D3. The optional `scripts/export_charts.py` script only generates offline PNGs for documentation; it is not used on the live pages.
 
 ## Proposal Requirements Covered
 
 - Project title
 - Public dataset with more than 100 rows and 5 columns
 - 5-10 line project writeup
-- Six static proposal visualizations
+- Six interactive D3 proposal visualizations
 - Initial explorable explanation structure for the final web page
 
 ## Initial Prototype Requirements Covered

@@ -9,10 +9,6 @@
   </head>
   <body>
     <header class="hero hero-compact">
-      <nav>
-        <a href="index.html">Prototype</a>
-        <a href="proposal.html" class="nav-active">Project Proposal</a>
-      </nav>
       <section class="hero-grid hero-grid-compact">
         <div>
           <p class="eyebrow">DSC 106 · Final Project Proposal</p>
@@ -21,7 +17,9 @@
             How has the Billboard Hot 100 changed in the streaming era — and has
             the modern hit song become optimized for instant attention?
           </p>
-          <p><a href="index.html">View the interactive prototype →</a></p>
+          <p class="hero-project-link">
+            <a href="index.html">View the project →</a>
+          </p>
         </div>
         <div class="stat-panel" aria-label="Dataset summary">
           <div>
@@ -91,6 +89,15 @@
             song using the first Billboard chart appearance as its year — 24,206
             songs with duration, chart performance, danceability, energy,
             loudness, acousticness, valence, and tempo.
+          </p>
+          <p>
+            For the interactive prototype’s artist and song comparison, we also use
+            <a href="https://www.kaggle.com/datasets/rodolfofigueroa/spotify-12m-songs"
+              >Spotify’s 12M+ songs dataset</a
+            >. From it we build per-artist catalog averages and a track lookup so readers
+            can overlay a specific song and catalog profile on the era baselines in the
+            radar chart, using each track’s Spotify release year to place it in a
+            streaming era.
           </p>
 
           <h3>Era Definitions</h3>
@@ -195,9 +202,44 @@
                 more acoustic, or less danceable.
               </p>
             </div>
-            <div id="outliers" class="outlier-list"></div>
+            <div id="outliers" class="chart"></div>
           </article>
         </div>
+      </section>
+
+      <section id="writeup" class="section prototype-writeup-section">
+        <details class="writeup-details">
+          <summary>Prototype writeup</summary>
+          <div class="section-copy">
+            <article class="writeup-block">
+              <h3>What have we done so far?</h3>
+              <p>
+                We have chosen a music-focused topic and built the project around
+                Billboard Hot 100 songs with Spotify audio features. We cleaned the
+                source data into one row per song, using each track's first Billboard
+                chart appearance as its year. We created summary CSVs for yearly
+                trends, era-level duration distributions, audio-feature diversity,
+                scatterplot samples, and modern outlier songs. We also built a
+                public webpage with D3 visualizations that show early patterns in
+                duration, danceability, energy, acousticness, valence, and unusual
+                modern hits.
+              </p>
+            </article>
+            <article class="writeup-block">
+              <h3>What will be the most challenging part to design and why?</h3>
+              <p>
+                The hardest design challenge will be turning the project from a set
+                of charts into a clear explorable explanation. The dataset can show
+                that hit songs changed over time, but it cannot prove that streaming
+                directly caused every change. We will need to design annotations and
+                interactions that make the evidence feel compelling without
+                overstating causality. We also need to help readers compare eras
+                without losing the song-level detail that makes the topic
+                interesting.
+              </p>
+            </article>
+          </div>
+        </details>
       </section>
     </main>
 
@@ -207,6 +249,10 @@
         <a
           href="https://www.kaggle.com/datasets/thedevastator/billboard-hot-100-audio-features"
           >Billboard Hot 100 with Spotify audio features</a
+        >
+        ·
+        <a href="https://www.kaggle.com/datasets/rodolfofigueroa/spotify-12m-songs"
+          >Spotify 12M+ songs</a
         >
         · <a href="index.html">Interactive prototype</a>
       </p>

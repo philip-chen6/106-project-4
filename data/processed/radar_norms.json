@@ -1,0 +1,32 @@
+{
+  "duration_min": {
+    "min": 1.0217666666666667,
+    "max": 7.98425,
+    "scaled": false
+  },
+  "danceability": {
+    "min": 0.0,
+    "max": 1.0,
+    "scaled": true
+  },
+  "energy": {
+    "min": 0.0,
+    "max": 1.0,
+    "scaled": true
+  },
+  "loudness": {
+    "min": -28.03,
+    "max": 2.291,
+    "scaled": false
+  },
+  "acousticness": {
+    "min": 0.0,
+    "max": 1.0,
+    "scaled": true
+  },
+  "valence": {
+    "min": 0.0,
+    "max": 1.0,
+    "scaled": true
+  }
+}

@@ -2,6 +2,14 @@ const files = {
   yearly: "data/processed/yearly.csv",
   eraSummary: "data/processed/era_summary.csv",
   songs: "data/processed/songs.csv",
+  artistAverages: "data/processed/artist_averages.csv",
+  radarNorms: "data/processed/radar_norms.json",
+  spotifyLookup: "data/processed/spotify_tracks_lookup.csv",
+};
+
+const RADAR_LINE_COLORS = {
+  artist: "#8B5E3C",
+  song: "#F0C929",
 };
 
 const colors = {
@@ -12,13 +20,19 @@ const colors = {
   muted: "#6d675f",
   ink: "#191714",
   eras: {
-    "Pre-streaming": "#6d675f",
-    "Streaming growth": "#2364aa",
-    "Streaming native": "#d84f2a",
+    "Pre-streaming": "#b3b3b3",
+    "Streaming growth": "#1db954",
+    "Streaming native": "#212121",
   },
 };
 
 const eraOrder = ["Pre-streaming", "Streaming growth", "Streaming native"];
+
+const ERA_YEAR_LABELS = {
+  "Pre-streaming": "before 2010",
+  "Streaming growth": "2010–2019",
+  "Streaming native": "2020 onward",
+};
 
 const featureMeta = {
   duration_min: {
@@ -71,19 +85,32 @@ const featureMeta = {
   },
 };
 
+const RADAR_FEATURES = [
+  "duration_min",
+  "danceability",
+  "energy",
+  "loudness",
+  "acousticness",
+  "valence",
+].map((key) => ({ key, label: featureMeta[key].label }));
+
 const tooltip = d3.select("#tooltip");
 
 let eraSummaryData = [];
 let yearlyData = [];
 let songsData = [];
+let artistAveragesData = [];
+let radarNorms = null;
+let spotifyLookupData = null;
+let spotifyLookupPromise = null;
+let tracksByArtistKey = null;
+let lastRadarQuery = null;
+let radarComparisonState = null;
 let activeEraFeature = "duration_min";
 let profileEra = "Streaming native";
 let scrollLocked = false;
 let scrollLockTimer = null;
 let activeSongIndex = 0;
-let moodMapEra = "All";
-let moodMapSample = [];
-let activeMoodSong = null;
 
 const curatedSongs = [
   {
@@ -457,334 +484,6 @@ function escapeHTML(value) {
     .replaceAll("'", "&#039;");
 }
 
-function buildMoodMapSample(songs) {
-  const valid = songs.filter(
-    (d) =>
-      Number.isFinite(d.valence) &&
-      Number.isFinite(d.danceability) &&
-      Number.isFinite(d.energy) &&
-      Number.isFinite(d.year) &&
-      d.Song &&
-      d.Performer
-  );
-
-  const samples = [];
-  eraOrder.forEach((era) => {
-    const eraSongs = valid
-      .filter((d) => d.era === era)
-      .sort((a, b) => d3.ascending(a.year, b.year) || d3.ascending(a.best_rank, b.best_rank));
-    const target = era === "Streaming native" ? 360 : 720;
-    const stride = Math.max(1, Math.floor(eraSongs.length / target));
-    samples.push(...eraSongs.filter((d, i) => i % stride === 0).slice(0, target));
-  });
-
-  curatedSongs.forEach((curated) => {
-    const match = valid.find(
-      (d) =>
-        String(d.Song).toLowerCase() === curated.song.toLowerCase() &&
-        String(d.Performer).toLowerCase().includes(curated.performer.toLowerCase().split(" ")[0])
-    );
-    if (match && !samples.some((d) => d.SongID === match.SongID)) samples.push(match);
-  });
-
-  return samples;
-}
-
-function moodLabel(song) {
-  const mood = song.valence >= 0.55 ? "brighter" : "moodier";
-  const movement = song.danceability >= 0.62 ? "more danceable" : "less danceable";
-  return `${movement}, ${mood}`;
-}
-
-function getMoodMapCentroids(data) {
-  return eraOrder
-    .map((era) => {
-      const songs = data.filter((d) => d.era === era);
-      return {
-        era,
-        valence: d3.mean(songs, (d) => d.valence),
-        danceability: d3.mean(songs, (d) => d.danceability),
-        songs: songs.length,
-      };
-    })
-    .filter((d) => Number.isFinite(d.valence) && Number.isFinite(d.danceability));
-}
-
-function getPinnedMoodSongs(sample) {
-  return curatedSongs
-    .map((curated) => {
-      const exact = sample.find(
-        (d) =>
-          String(d.Song).toLowerCase() === curated.song.toLowerCase() &&
-          String(d.Performer).toLowerCase().includes(curated.performer.toLowerCase().split(" ")[0])
-      );
-      return exact ? { ...exact, pinLabel: curated.song } : null;
-    })
-    .filter(Boolean);
-}
-
-function renderMoodDetail(song) {
-  const container = d3.select("#mood-detail");
-  if (container.empty()) return;
-
-  if (!song) {
-    container.html(`
-      <p class="mood-detail-kicker">How to read it</p>
-      <h4>Pick a dot</h4>
-      <p>Hover or click a song to see how it combines rhythm and mood.</p>
-    `);
-    return;
-  }
-
-  container.html(`
-    <p class="mood-detail-kicker">${escapeHTML(song.era)} · ${song.year}</p>
-    <h4>${escapeHTML(song.Song)}</h4>
-    <p class="mood-detail-artist">${escapeHTML(song.Performer)}</p>
-    <p>${escapeHTML(moodLabel(song))}. This song's valence is ${song.valence.toFixed(
-      2
-    )}, while its danceability is ${song.danceability.toFixed(2)}.</p>
-    <dl>
-      <div><dt>Valence</dt><dd>${song.valence.toFixed(2)}</dd></div>
-      <div><dt>Danceability</dt><dd>${song.danceability.toFixed(2)}</dd></div>
-      <div><dt>Energy</dt><dd>${song.energy.toFixed(2)}</dd></div>
-      <div><dt>Peak</dt><dd>#${Math.round(song.best_rank)}</dd></div>
-    </dl>
-    <a class="listen-link" href="${toSpotifySearchUrl(song.Song, song.Performer)}" target="_blank" rel="noopener noreferrer">
-      Listen on Spotify
-    </a>
-  `);
-}
-
-function renderMoodMap() {
-  const frame = chartFrame("#mood-map", { top: 28, right: 28, bottom: 52, left: 58 });
-  if (!frame || !moodMapSample.length) return;
-
-  const { svg, g, innerWidth, innerHeight } = frame;
-  const filtered =
-    moodMapEra === "All" ? moodMapSample : moodMapSample.filter((d) => d.era === moodMapEra);
-  const x = d3.scaleLinear().domain([0, 1]).range([0, innerWidth]);
-  const y = d3.scaleLinear().domain([0, 1]).range([innerHeight, 0]);
-  const centroids = getMoodMapCentroids(filtered);
-  const pinnedSongs = getPinnedMoodSongs(filtered);
-
-  svg
-    .append("defs")
-    .append("marker")
-    .attr("id", "mood-arrowhead")
-    .attr("viewBox", "0 0 10 10")
-    .attr("refX", 8)
-    .attr("refY", 5)
-    .attr("markerWidth", 7)
-    .attr("markerHeight", 7)
-    .attr("orient", "auto-start-reverse")
-    .append("path")
-    .attr("d", "M 0 0 L 10 5 L 0 10 z")
-    .attr("fill", colors.ink);
-
-  addGrid(g, x, y, innerWidth, innerHeight);
-
-  g.append("line")
-    .attr("x1", x(0.5))
-    .attr("x2", x(0.5))
-    .attr("y1", 0)
-    .attr("y2", innerHeight)
-    .attr("stroke", "#d8d0c4")
-    .attr("stroke-dasharray", "4 4");
-
-  g.append("line")
-    .attr("x1", 0)
-    .attr("x2", innerWidth)
-    .attr("y1", y(0.5))
-    .attr("y2", y(0.5))
-    .attr("stroke", "#d8d0c4")
-    .attr("stroke-dasharray", "4 4");
-
-  const labels = [
-    { text: "moody + less danceable", x: 0.03, y: 0.1 },
-    { text: "bright + less danceable", x: 0.67, y: 0.1 },
-    { text: "moody + danceable", x: 0.03, y: 0.92 },
-    { text: "bright + danceable", x: 0.68, y: 0.92 },
-  ];
-
-  g.selectAll(".quadrant-label")
-    .data(labels)
-    .join("text")
-    .attr("class", "quadrant-label")
-    .attr("x", (d) => x(d.x))
-    .attr("y", (d) => y(d.y))
-    .text((d) => d.text);
-
-  const cloud = g.append("g").attr("class", "mood-cloud");
-
-  cloud
-    .selectAll(".mood-dot")
-    .data(filtered, (d) => d.SongID)
-    .join("circle")
-    .attr("class", "mood-dot")
-    .attr("cx", (d) => x(d.valence))
-    .attr("cy", (d) => y(d.danceability))
-    .attr("r", (d) => (activeMoodSong?.SongID === d.SongID ? 5.5 : 3.2))
-    .attr("fill", (d) => colors.eras[d.era])
-    .attr("opacity", (d) => (activeMoodSong?.SongID === d.SongID ? 1 : 0.34))
-    .on("mouseenter", function (event, d) {
-      d3.select(this).attr("opacity", 0.95).attr("r", 5.5);
-      showTip(
-        event,
-        `<strong>${escapeHTML(d.Song)}</strong><br>${escapeHTML(d.Performer)} · ${d.year}<br>Valence ${d.valence.toFixed(
-          2
-        )}, danceability ${d.danceability.toFixed(2)}`
-      );
-      renderMoodDetail(d);
-    })
-    .on("mouseleave", function (event, d) {
-      d3.select(this)
-        .attr("opacity", activeMoodSong?.SongID === d.SongID ? 1 : 0.34)
-        .attr("r", activeMoodSong?.SongID === d.SongID ? 5.5 : 3.2);
-      hideTip();
-      renderMoodDetail(activeMoodSong);
-    })
-    .on("click", (event, d) => {
-      activeMoodSong = d;
-      renderMoodDetail(d);
-      renderMoodMap();
-    });
-
-  if (centroids.length > 1 && moodMapEra === "All") {
-    const pathLine = d3
-      .line()
-      .x((d) => x(d.valence))
-      .y((d) => y(d.danceability))
-      .curve(d3.curveCatmullRom.alpha(0.5));
-
-    g.append("path")
-      .datum(centroids)
-      .attr("class", "mood-shift-arrow")
-      .attr("d", pathLine)
-      .attr("fill", "none")
-      .attr("stroke", colors.ink)
-      .attr("stroke-width", 3)
-      .attr("stroke-linecap", "round")
-      .attr("stroke-linejoin", "round")
-      .attr("marker-end", "url(#mood-arrowhead)");
-  }
-
-  const centroid = g.append("g").attr("class", "mood-centroids");
-  const centroidGroups = centroid
-    .selectAll(".mood-centroid")
-    .data(centroids)
-    .join("g")
-    .attr("class", "mood-centroid")
-    .attr("transform", (d) => `translate(${x(d.valence)},${y(d.danceability)})`)
-    .on("mouseenter", (event, d) => {
-      showTip(
-        event,
-        `<strong>${d.era} average</strong><br>Valence ${d.valence.toFixed(
-          2
-        )}<br>Danceability ${d.danceability.toFixed(2)}`
-      );
-    })
-    .on("mouseleave", hideTip);
-
-  centroidGroups
-    .append("circle")
-    .attr("r", 13)
-    .attr("fill", (d) => colors.eras[d.era])
-    .attr("stroke", "white")
-    .attr("stroke-width", 3);
-
-  centroidGroups
-    .append("text")
-    .attr("x", 16)
-    .attr("y", 4)
-    .text((d) => d.era.replace("Streaming ", ""))
-    .attr("class", "mood-centroid-label");
-
-  const pinned = g.append("g").attr("class", "mood-pins");
-  const pinGroups = pinned
-    .selectAll(".mood-pin")
-    .data(pinnedSongs, (d) => d.SongID)
-    .join("g")
-    .attr("class", "mood-pin")
-    .attr("transform", (d) => `translate(${x(d.valence)},${y(d.danceability)})`)
-    .on("mouseenter", (event, d) => {
-      showTip(event, `<strong>${escapeHTML(d.Song)}</strong><br>${escapeHTML(d.Performer)} · ${d.year}`);
-      renderMoodDetail(d);
-    })
-    .on("mouseleave", () => {
-      hideTip();
-      renderMoodDetail(activeMoodSong);
-    })
-    .on("click", (event, d) => {
-      activeMoodSong = d;
-      renderMoodDetail(d);
-      renderMoodMap();
-    });
-
-  pinGroups
-    .append("circle")
-    .attr("r", 6)
-    .attr("fill", (d) => colors.eras[d.era])
-    .attr("stroke", colors.ink)
-    .attr("stroke-width", 1.5);
-
-  pinGroups
-    .append("line")
-    .attr("x1", 7)
-    .attr("x2", 24)
-    .attr("y1", -7)
-    .attr("y2", -19)
-    .attr("stroke", colors.ink)
-    .attr("stroke-width", 1);
-
-  pinGroups
-    .append("text")
-    .attr("class", "mood-pin-label")
-    .attr("x", 28)
-    .attr("y", -21)
-    .text((d) => d.pinLabel);
-
-  g.append("g")
-    .attr("class", "axis")
-    .attr("transform", `translate(0,${innerHeight})`)
-    .call(d3.axisBottom(x).ticks(5));
-
-  g.append("g").attr("class", "axis").call(d3.axisLeft(y).ticks(5));
-
-  svg
-    .append("text")
-    .attr("class", "annotation axis-label-x")
-    .attr("x", 58 + innerWidth / 2)
-    .attr("y", 28 + innerHeight + 42)
-    .attr("text-anchor", "middle")
-    .text("Valence: moodier → brighter");
-
-  svg
-    .append("text")
-    .attr("class", "annotation axis-label-y")
-    .attr("text-anchor", "middle")
-    .attr("dominant-baseline", "middle")
-    .attr("transform", `translate(18, ${28 + innerHeight / 2}) rotate(-90)`)
-    .text("Danceability");
-
-  renderMoodDetail(activeMoodSong || filtered[0]);
-}
-
-function setupMoodMap() {
-  document.querySelectorAll("[data-mood-era]").forEach((button) => {
-    button.addEventListener("click", () => {
-      moodMapEra = button.dataset.moodEra;
-      document.querySelectorAll("[data-mood-era]").forEach((btn) => {
-        btn.classList.toggle("active", btn === button);
-      });
-      const currentVisible =
-        !activeMoodSong || moodMapEra === "All" || activeMoodSong.era === moodMapEra;
-      if (!currentVisible) activeMoodSong = null;
-      renderMoodMap();
-    });
-  });
-  renderMoodMap();
-}
-
 function renderSongCarousel() {
   const container = d3.select("#song-card");
   const dots = d3.select("#song-dots");
@@ -792,27 +491,39 @@ function renderSongCarousel() {
 
   const song = curatedSongs[activeSongIndex];
   const metrics = [
-    { label: "Duration", value: `${song.duration_min.toFixed(2)} min` },
-    { label: "Energy", value: song.energy.toFixed(2) },
-    { label: "Danceability", value: song.danceability.toFixed(2) },
-    { label: "Acousticness", value: song.acousticness.toFixed(2) },
-    { label: "Peak", value: `#${Math.round(song.best_rank)}` },
+    {
+      label: "Duration",
+      key: "duration_min",
+      value: `${song.duration_min.toFixed(2)} min`,
+    },
+    { label: "Energy", key: "energy", value: song.energy.toFixed(2) },
+    { label: "Danceability", key: "danceability", value: song.danceability.toFixed(2) },
+    { label: "Acousticness", key: "acousticness", value: song.acousticness.toFixed(2) },
+    { label: "Peak", value: `#${Math.round(song.best_rank)}`, peak: true },
   ];
 
   container.html(`
-    <div class="song-card-kicker">Curated exception ${activeSongIndex + 1} of ${curatedSongs.length}</div>
     <div class="song-card-main">
       <div>
         <h3>${song.song}</h3>
         <p class="song-artist">${song.performer} · ${song.year}</p>
       </div>
-      <a class="listen-link" href="${toSpotifySearchUrl(song.song, song.performer)}" target="_blank" rel="noopener noreferrer">
-        Listen on Spotify
+      <a class="native-play" href="${toSpotifySearchUrl(song.song, song.performer)}" target="_blank" rel="noopener noreferrer">
+        Play on Spotify
       </a>
     </div>
     <p class="song-why">${song.why}</p>
     <dl class="song-metrics">
-      ${metrics.map((metric) => `<div><dt>${metric.label}</dt><dd>${metric.value}</dd></div>`).join("")}
+      ${metrics
+        .map((metric) => {
+          const vsMean = metric.key ? buildMetricVsMean(song, metric.key) : "";
+          return `<div${metric.peak ? ' class="song-metric-peak"' : ""}>
+            <dt>${metric.label}</dt>
+            <dd>${metric.value}</dd>
+            ${vsMean ? `<p class="song-metric-vs">${vsMean}</p>` : ""}
+          </div>`;
+        })
+        .join("")}
     </dl>
   `);
 
@@ -851,30 +562,246 @@ function getSongLabel(song) {
   return `${song.Song} ${song.Performer}`.toLowerCase();
 }
 
-function findSongMatch(query) {
-  const normalized = query.trim().toLowerCase();
-  if (!normalized) return null;
+function normalizeArtistKey(value) {
+  return String(value || "")
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, " ");
+}
+
+function splitArtistNames(value) {
+  return String(value || "")
+    .split(";")
+    .map((part) => part.trim())
+    .filter(Boolean);
+}
+
+function ensureTrackIndex() {
+  if (tracksByArtistKey || !spotifyLookupData?.length) return;
+  tracksByArtistKey = new Map();
+  spotifyLookupData.forEach((row) => {
+    const track = String(row.track_name || "").trim();
+    if (!track) return;
+    splitArtistNames(row.artists).forEach((artistName) => {
+      const key = normalizeArtistKey(artistName);
+      if (!tracksByArtistKey.has(key)) tracksByArtistKey.set(key, new Set());
+      tracksByArtistKey.get(key).add(track);
+    });
+  });
+}
+
+function filterArtistSuggestions(query, limit = 8) {
+  const normalized = normalizeArtistKey(query);
+  if (!normalized) return [];
+
   const tokens = normalized.split(/\s+/).filter(Boolean);
+  const scored = [];
+
+  artistAveragesData.forEach((row) => {
+    const key = normalizeArtistKey(row.artist_key || row.artist);
+    const name = String(row.artist || "").trim();
+    if (!name) return;
+
+    let score = 0;
+    if (key === normalized || name.toLowerCase() === normalized) score += 200;
+    if (key.startsWith(normalized) || name.toLowerCase().startsWith(normalized)) score += 120;
+    if (key.includes(normalized) || name.toLowerCase().includes(normalized)) score += 70;
+    tokens.forEach((token) => {
+      if (key.includes(token)) score += 24;
+    });
+    score += Math.min(+row.tracks || 0, 200) / 50;
+
+    if (score > 30) scored.push({ name, score });
+  });
+
+  return scored
+    .sort((a, b) => b.score - a.score || a.name.localeCompare(b.name))
+    .slice(0, limit)
+    .map((entry) => entry.name);
+}
+
+function filterSongSuggestions(artistQuery, songQuery, limit = 8) {
+  const artist = normalizeArtistKey(artistQuery);
+  if (!artist || !tracksByArtistKey) return [];
+
+  const tokens = artist.split(/\s+/).filter(Boolean);
+  const titles = new Set();
+
+  tracksByArtistKey.forEach((trackSet, key) => {
+    if (!tokens.every((token) => key.includes(token))) return;
+    trackSet.forEach((title) => titles.add(title));
+  });
+
+  const query = songQuery.trim().toLowerCase();
+  const scored = [];
+
+  titles.forEach((title) => {
+    const lower = title.toLowerCase();
+    let score = 1;
+    if (query) {
+      if (lower === query) score += 200;
+      else if (lower.startsWith(query)) score += 120;
+      else if (lower.includes(query)) score += 60;
+      else return;
+    }
+    scored.push({ title, score });
+  });
+
+  return scored
+    .sort((a, b) => b.score - a.score || a.title.localeCompare(b.title))
+    .slice(0, limit)
+    .map((entry) => entry.title);
+}
+
+function attachAutocomplete(input, list, getSuggestions) {
+  if (!input || !list) return;
+
+  let activeIndex = -1;
+  let currentSuggestions = [];
+
+  const hideList = () => {
+    list.hidden = true;
+    input.setAttribute("aria-expanded", "false");
+    activeIndex = -1;
+    list.querySelectorAll("li").forEach((item) => item.removeAttribute("aria-selected"));
+  };
+
+  const renderSuggestions = (items) => {
+    currentSuggestions = items;
+    activeIndex = -1;
+    list.innerHTML = "";
+
+    if (!items.length) {
+      hideList();
+      return;
+    }
+
+    items.forEach((label, index) => {
+      const item = document.createElement("li");
+      item.setAttribute("role", "option");
+      item.setAttribute("id", `${list.id}-option-${index}`);
+      item.textContent = label;
+      item.addEventListener("mousedown", (event) => {
+        event.preventDefault();
+        input.value = label;
+        hideList();
+        input.dispatchEvent(new Event("change", { bubbles: true }));
+      });
+      list.appendChild(item);
+    });
+
+    list.hidden = false;
+    input.setAttribute("aria-expanded", "true");
+  };
+
+  const refresh = debounce(async () => {
+    const items = await getSuggestions(input.value);
+    renderSuggestions(items);
+  }, 120);
+
+  const moveActive = (delta) => {
+    if (!currentSuggestions.length || list.hidden) return;
+    activeIndex = (activeIndex + delta + currentSuggestions.length) % currentSuggestions.length;
+    list.querySelectorAll("li").forEach((item, index) => {
+      const selected = index === activeIndex;
+      item.setAttribute("aria-selected", selected ? "true" : "false");
+      if (selected) item.scrollIntoView({ block: "nearest" });
+    });
+  };
+
+  input.addEventListener("input", refresh);
+  input.addEventListener("focus", refresh);
+  input.addEventListener("blur", () => {
+    window.setTimeout(hideList, 140);
+  });
+  input.addEventListener("keydown", (event) => {
+    if (event.key === "ArrowDown") {
+      event.preventDefault();
+      moveActive(1);
+    } else if (event.key === "ArrowUp") {
+      event.preventDefault();
+      moveActive(-1);
+    } else if (event.key === "Enter" && activeIndex >= 0) {
+      event.preventDefault();
+      input.value = currentSuggestions[activeIndex];
+      hideList();
+    } else if (event.key === "Escape") {
+      hideList();
+    }
+  });
+
+  const field = input.closest(".combo-field");
+  document.addEventListener("click", (event) => {
+    if (field && !field.contains(event.target)) hideList();
+  });
+}
+
+function normalizeRadarFeature(key, value, norms) {
+  if (!Number.isFinite(value) || !norms?.[key]) return null;
+  const spec = norms[key];
+  if (spec.scaled) return Math.max(0, Math.min(1, value));
+  const span = spec.max - spec.min;
+  if (!Number.isFinite(span) || span === 0) return 0.5;
+  return Math.max(0, Math.min(1, (value - spec.min) / span));
+}
+
+function radarValuesFromRow(row) {
+  const values = {};
+  RADAR_FEATURES.forEach(({ key }) => {
+    values[key] = normalizeRadarFeature(key, +row[key], radarNorms);
+  });
+  return values;
+}
+
+function findArtistAverage(artistQuery) {
+  const query = normalizeArtistKey(artistQuery);
+  if (!query) return null;
+
+  let best = null;
+  let bestScore = -Infinity;
+  const tokens = query.split(/\s+/).filter(Boolean);
+
+  artistAveragesData.forEach((row) => {
+    const key = normalizeArtistKey(row.artist_key || row.artist);
+    let score = 0;
+    if (key === query) score += 160;
+    if (key.includes(query) || query.includes(key)) score += 90;
+    tokens.forEach((token) => {
+      if (key.includes(token)) score += 18;
+    });
+    score += Math.min(+row.tracks || 0, 120) / 40;
+
+    if (score > bestScore) {
+      best = row;
+      bestScore = score;
+    }
+  });
+
+  return bestScore > 20 ? best : null;
+}
+
+function findBillboardSong(artistQuery, songTitle = "") {
+  const artist = normalizeArtistKey(artistQuery);
+  const title = songTitle.trim().toLowerCase();
+  if (!artist) return null;
 
   let best = null;
   let bestScore = -Infinity;
 
   songsData.forEach((song) => {
-    const title = String(song.Song || "").toLowerCase();
-    const performer = String(song.Performer || "").toLowerCase();
-    const label = `${title} ${performer}`;
-    let score = 0;
+    const performer = normalizeArtistKey(song.Performer);
+    const track = String(song.Song || "").toLowerCase();
+    if (!performer.includes(artist) && !artist.split(/\s+/).every((token) => performer.includes(token))) {
+      return;
+    }
 
-    if (title === normalized) score += 140;
-    if (performer === normalized) score += 95;
-    if (label.includes(normalized)) score += 80;
-    if (title.includes(normalized)) score += 55;
-    if (performer.includes(normalized)) score += 40;
-    tokens.forEach((token) => {
-      if (label.includes(token)) score += 8;
-    });
-    if (Number.isFinite(song.best_rank)) score += (101 - song.best_rank) / 25;
-    if (Number.isFinite(song.max_weeks_on_chart)) score += Math.min(song.max_weeks_on_chart, 40) / 20;
+    let score = 40;
+    if (title) {
+      if (track === title) score += 140;
+      else if (track.includes(title)) score += 80;
+      else return;
+    }
+    if (Number.isFinite(song.best_rank)) score += (101 - song.best_rank) / 20;
 
     if (score > bestScore) {
       best = song;
@@ -882,91 +809,460 @@ function findSongMatch(query) {
     }
   });
 
-  return bestScore > 0 ? best : null;
+  return best;
 }
 
-function renderSongComparison(song) {
-  const container = d3.select("#song-compare-result");
-  if (container.empty()) return;
+function findSpotifyTrack(artistQuery, songTitle, lookup) {
+  const artist = normalizeArtistKey(artistQuery);
+  const title = songTitle.trim().toLowerCase();
+  if (!artist || !lookup?.length) return null;
 
-  if (!song) {
-    container.html(`
-      <p class="compare-empty">Type a song or artist above to compare it with the average hit from the same chart year.</p>
-    `);
-    return;
-  }
+  let best = null;
+  let bestScore = -Infinity;
+  const tokens = artist.split(/\s+/).filter(Boolean);
 
-  const yearRow = yearlyData.find((d) => d.year === song.year);
-  const eraRow = eraSummaryData.find((d) => d?.era === song.era);
-  if (!yearRow || !eraRow) {
-    container.html(`
-      <p class="compare-empty">We found ${escapeHTML(song.Song)}, but do not have a complete yearly baseline for it.</p>
-    `);
-    return;
-  }
+  lookup.forEach((row) => {
+    const artists = normalizeArtistKey(row.artists);
+    if (!tokens.every((token) => artists.includes(token))) return;
 
-  const compareFeatures = ["duration_min", "danceability", "energy", "acousticness", "valence"];
-  const rows = compareFeatures.map((key) => {
-    const meta = featureMeta[key];
-    const songValue = song[key];
-    const yearValue = yearRow[key];
-    const eraValue = eraRow[key];
-    const values = [songValue, yearValue, eraValue].filter((d) => Number.isFinite(d));
-    const min = d3.min(values);
-    const max = d3.max(values);
-    const songPct = barPct(normalizeWithBounds(songValue, min, max));
-    const yearPct = barPct(normalizeWithBounds(yearValue, min, max));
-    const delta = songValue - yearValue;
-    return `
-      <div class="compare-metric">
-        <div class="compare-metric-head">
-          <strong>${meta.label}</strong>
-          <span>${meta.format(songValue)} · ${formatDelta(key, delta)} vs ${song.year}</span>
-        </div>
-        <div class="compare-bars">
-          <div>
-            <span>Song</span>
-            <i style="width:${songPct}%"></i>
-          </div>
-          <div>
-            <span>${song.year} avg</span>
-            <i class="year-bar" style="width:${yearPct}%"></i>
-          </div>
-        </div>
-      </div>
-    `;
+    const track = String(row.track_name || "").toLowerCase();
+    let score = 30;
+    if (title) {
+      if (track === title) score += 140;
+      else if (track.includes(title)) score += 75;
+      else return;
+    }
+
+    if (score > bestScore) {
+      best = row;
+      bestScore = score;
+    }
   });
 
+  return best;
+}
+
+function eraFromYear(year) {
+  const y = +year;
+  if (!Number.isFinite(y)) return null;
+  if (y < 2010) return "Pre-streaming";
+  if (y < 2020) return "Streaming growth";
+  return "Streaming native";
+}
+
+function songReleaseYear(spotifyTrack, billboardSong) {
+  const year = +(spotifyTrack?.release_year ?? spotifyTrack?.year ?? billboardSong?.year);
+  return Number.isFinite(year) ? year : null;
+}
+
+function buildSongFeatureRow(billboardSong, spotifyTrack) {
+  const row = {};
+  RADAR_FEATURES.forEach(({ key }) => {
+    const billboardValue = billboardSong ? +billboardSong[key] : NaN;
+    let spotifyValue = spotifyTrack ? +spotifyTrack[key] : NaN;
+    if (!Number.isFinite(spotifyValue) && spotifyTrack?.duration_ms) {
+      spotifyValue = +spotifyTrack.duration_ms / 60000;
+    }
+    row[key] = Number.isFinite(spotifyValue) ? spotifyValue : billboardValue;
+  });
+  return row;
+}
+
+function loadSpotifyLookup() {
+  if (spotifyLookupData) return Promise.resolve(spotifyLookupData);
+  if (!spotifyLookupPromise) {
+    spotifyLookupPromise = d3.csv(files.spotifyLookup, parseRow).then((rows) => {
+      spotifyLookupData = rows;
+      return rows;
+    });
+  }
+  return spotifyLookupPromise;
+}
+
+function formatRadarRawValue(key, raw) {
+  const value = raw?.[key];
+  if (!Number.isFinite(+value)) return "—";
+  return featureMeta[key] ? featureMeta[key].format(value) : String(value);
+}
+
+function radarSeriesTooltip(entry) {
+  const rows = RADAR_FEATURES.map(({ key, label }) => `${label}: ${formatRadarRawValue(key, entry.raw)}`);
+  return `<strong>${escapeHTML(entry.label)}</strong><br>${rows.join("<br>")}`;
+}
+
+function appendEraSeries(series, visibleEra = "all") {
+  eraOrder.forEach((era) => {
+    const eraRow = eraSummaryData.find((d) => d?.era === era);
+    if (!eraRow) return;
+
+    const visible =
+      visibleEra === "all" ? true : visibleEra === "none" ? false : era === visibleEra;
+
+    series.push({
+      id: `era-${era}`,
+      label: era,
+      color: colors.eras[era],
+      raw: eraRow,
+      values: radarValuesFromRow(eraRow),
+      visible,
+    });
+  });
+}
+
+function buildEraRadarSeries() {
+  const series = [];
+  appendEraSeries(series, "all");
+  return series;
+}
+
+function showEraRadarComparison() {
+  if (!radarNorms) return;
+  const series = buildEraRadarSeries();
+  if (series.length) showRadarComparison(series);
+}
+
+function buildRadarSeries(artistInput, titleInput, billboardSong, spotifyTrack, artistRow) {
+  const series = [];
+  const songFeatureRow = buildSongFeatureRow(billboardSong, spotifyTrack);
+  const hasSongFeatures = RADAR_FEATURES.some(({ key }) => Number.isFinite(+songFeatureRow[key]));
+  const hasSong = Boolean(titleInput) && hasSongFeatures;
+
+  if (hasSong) {
+    const releaseYear = songReleaseYear(spotifyTrack, billboardSong);
+    const songEra = eraFromYear(releaseYear);
+    appendEraSeries(series, songEra || "none");
+
+    if (artistRow) {
+      series.push({
+        id: "artist",
+        label: `${artistRow.artist}'s Catalog`,
+        color: RADAR_LINE_COLORS.artist,
+        raw: artistRow,
+        values: radarValuesFromRow(artistRow),
+        visible: true,
+      });
+    }
+
+    const songLabel = spotifyTrack?.track_name || billboardSong?.Song || titleInput;
+    series.push({
+      id: "song",
+      label: songLabel,
+      color: RADAR_LINE_COLORS.song,
+      raw: { ...songFeatureRow, release_year: releaseYear, era: songEra },
+      values: radarValuesFromRow(songFeatureRow),
+      visible: true,
+    });
+  } else if (artistRow) {
+    appendEraSeries(series, "none");
+    series.push({
+      id: "artist",
+      label: `${artistRow.artist}'s Catalog`,
+      color: RADAR_LINE_COLORS.artist,
+      raw: artistRow,
+      values: radarValuesFromRow(artistRow),
+      visible: true,
+    });
+  }
+
+  return series;
+}
+
+function renderRadarLegendControls(series) {
+  const host = d3.select("#song-radar-legend");
+  if (host.empty()) return;
+
+  const toggles = host
+    .selectAll("button.radar-toggle")
+    .data(series, (d) => d.id)
+    .join("button")
+    .attr("type", "button")
+    .attr("class", (d) => {
+      const eraClass = d.id.startsWith("era-") ? " radar-toggle-era" : "";
+      return `radar-toggle${eraClass}${d.visible ? " active" : ""}`;
+    })
+    .attr("data-era", (d) => (d.id.startsWith("era-") ? d.label : null))
+    .attr("aria-pressed", (d) => d.visible)
+    .style("--toggle-color", (d) => d.color);
+
+  toggles.selectAll("*").remove();
+
+  toggles.each(function (d) {
+    const btn = d3.select(this);
+
+    if (d.id.startsWith("era-")) {
+      btn.append("span").attr("class", "radar-toggle-label").text(d.label);
+      btn.append("span").attr("class", "radar-toggle-years").text(ERA_YEAR_LABELS[d.label] || "");
+      return;
+    }
+
+    btn.append("span").attr("class", "radar-toggle-swatch").attr("aria-hidden", "true");
+    btn.append("span").attr("class", "radar-toggle-label").text(d.label);
+  });
+
+  toggles.on("click", (event, d) => {
+    d.visible = !d.visible;
+    if (radarComparisonState) {
+      radarComparisonState.series = series;
+    }
+    renderRadarLegendControls(series);
+    renderRadarChart(series);
+  });
+}
+
+function renderRadarAxisTicks(chartGroup, levelScale, levels) {
+  const ticks = chartGroup.append("g").attr("class", "radar-ticks");
+  const formatTick = d3.format(".1f");
+
+  for (let tick = 1; tick <= levels; tick += 1) {
+    const tickValue = tick / levels;
+    const tickGroup = ticks
+      .append("g")
+      .attr("class", "radar-tick-group")
+      .attr("transform", `translate(0,${-levelScale(tickValue)})`);
+
+    tickGroup
+      .append("text")
+      .attr("class", "radar-tick")
+      .attr("text-anchor", "middle")
+      .attr("dominant-baseline", "middle")
+      .text(formatTick(tickValue));
+
+    tickGroup.each(function () {
+      const group = d3.select(this);
+      const textNode = group.select("text").node();
+      if (!textNode) return;
+      const bbox = textNode.getBBox();
+      const padX = 5;
+      const padY = 3;
+      group
+        .insert("rect", "text")
+        .attr("class", "radar-tick-bg")
+        .attr("x", bbox.x - padX)
+        .attr("y", bbox.y - padY)
+        .attr("width", bbox.width + padX * 2)
+        .attr("height", bbox.height + padY * 2)
+        .attr("rx", 3);
+    });
+  }
+}
+
+function renderRadarChart(series) {
+  const host = d3.select("#song-radar-chart");
+  if (host.empty()) return;
+
+  host.selectAll("*").remove();
+
+  if (!series.length) {
+    host.append("p").attr("class", "radar-empty").text("Era comparison will appear when chart data loads.");
+    return;
+  }
+
+  const visible = series.filter((d) => d.visible);
+  if (!visible.length) {
+    host.append("p").attr("class", "radar-empty").text("Turn on at least one line in the legend above.");
+    return;
+  }
+
+  const width = Math.min(520, host.node().clientWidth || 520);
+  const height = width;
+  const labelOffset = 38;
+  const margin = 72;
+  const radius = width / 2 - margin;
+  const center = width / 2;
+  const levels = 10;
+  const angleStep = (Math.PI * 2) / RADAR_FEATURES.length;
+
+  const svg = host
+    .append("svg")
+    .attr("viewBox", `0 0 ${width} ${height}`)
+    .attr("role", "img")
+    .attr("aria-label", "Interactive radar chart comparing normalized audio features");
+
+  const g = svg.append("g").attr("transform", `translate(${center},${center})`);
+
+  const levelScale = d3.scaleLinear().domain([0, 1]).range([0, radius]);
+  const grid = g.append("g").attr("class", "radar-grid");
+
+  for (let level = 1; level <= levels; level += 1) {
+    const levelRadius = (radius / levels) * level;
+    grid.append("circle").attr("r", levelRadius).attr("fill", "none");
+  }
+
+  const axis = g.append("g").attr("class", "radar-axes");
+  RADAR_FEATURES.forEach((feature, index) => {
+    const angle = angleStep * index - Math.PI / 2;
+    axis
+      .append("line")
+      .attr("x1", 0)
+      .attr("y1", 0)
+      .attr("x2", Math.cos(angle) * radius)
+      .attr("y2", Math.sin(angle) * radius);
+  });
+
+  renderRadarAxisTicks(g, levelScale, levels);
+
+  const radarAngle = (index) => index * angleStep - Math.PI / 2;
+  // d3.lineRadial uses (sin θ, −cos θ); axis labels use (cos θ, sin θ) with the same θ.
+  const radarLineAngle = (index) => radarAngle(index) + Math.PI / 2;
+
+  const line = d3
+    .lineRadial()
+    .radius((d) => levelScale(d.value))
+    .angle((d) => radarLineAngle(d.index))
+    .curve(d3.curveLinearClosed);
+
+  const plot = g.append("g").attr("class", "radar-series");
+
+  visible.forEach((entry) => {
+    const points = RADAR_FEATURES.map(({ key }, index) => ({
+      index,
+      key,
+      value: entry.values[key] ?? 0,
+    }));
+
+    const layer = plot.append("g").attr("class", "radar-layer").attr("data-series-id", entry.id);
+
+    layer
+      .append("path")
+      .datum(points)
+      .attr("class", `radar-path radar-path-${entry.id}`)
+      .attr("d", line)
+      .attr("fill", entry.color)
+      .attr("fill-opacity", 0.14)
+      .attr("stroke", entry.color)
+      .attr("stroke-width", 2.4)
+      .attr("stroke-linejoin", "round")
+      .style("cursor", "pointer")
+      .on("mouseenter", (event) => showTip(event, radarSeriesTooltip(entry)))
+      .on("mouseleave", hideTip);
+
+    layer
+      .selectAll("circle")
+      .data(points)
+      .join("circle")
+      .attr("class", `radar-point radar-point-${entry.id}`)
+      .attr("r", 3.5)
+      .attr("cx", (d) => Math.cos(radarAngle(d.index)) * levelScale(d.value))
+      .attr("cy", (d) => Math.sin(radarAngle(d.index)) * levelScale(d.value))
+      .attr("fill", entry.color)
+      .attr("stroke", colors.ink)
+      .attr("stroke-width", 1)
+      .style("pointer-events", "none");
+  });
+
+  const axisLabels = g.append("g").attr("class", "radar-axis-labels");
+  RADAR_FEATURES.forEach((feature, index) => {
+    const angle = angleStep * index - Math.PI / 2;
+    axisLabels
+      .append("text")
+      .attr("class", "radar-axis-label")
+      .attr("x", Math.cos(angle) * (radius + labelOffset))
+      .attr("y", Math.sin(angle) * (radius + labelOffset))
+      .attr("text-anchor", "middle")
+      .attr("dominant-baseline", "middle")
+      .text(feature.label);
+  });
+}
+
+function showRadarComparison(series) {
+  radarComparisonState = { series };
+  renderRadarLegendControls(series);
+  renderRadarChart(series);
+}
+
+function clearRadarComparison() {
+  radarComparisonState = null;
+  d3.select("#song-radar-legend").selectAll("*").remove();
+  renderRadarChart([]);
+}
+
+async function renderSongComparison(artistQuery, songTitle = "") {
+  const container = d3.select("#song-compare-result");
+  const artistInput = artistQuery.trim();
+  const titleInput = songTitle.trim();
+
+  if (!artistInput) {
+    showEraRadarComparison();
+    container.html("");
+    return;
+  }
+
+  if (!radarNorms) {
+    container.html(`<p class="compare-empty">Radar normalization data is still loading.</p>`);
+    return;
+  }
+
+  container.html(`<p class="compare-empty">Building comparison…</p>`);
+
+  const artistRow = findArtistAverage(artistInput);
+  const billboardSong = titleInput ? findBillboardSong(artistInput, titleInput) : null;
+  let spotifyTrack = null;
+
+  if (titleInput) {
+    const lookup = await loadSpotifyLookup();
+    spotifyTrack = findSpotifyTrack(artistInput, titleInput, lookup);
+  }
+
+  const series = buildRadarSeries(artistInput, titleInput, billboardSong, spotifyTrack, artistRow);
+
+  if (!series.length) {
+    showEraRadarComparison();
   container.html(`
-    <div class="compare-result-head">
-      <div>
-        <p class="compare-kicker">${escapeHTML(song.era)} · first charted ${song.year}</p>
-        <h4>${escapeHTML(song.Song)}</h4>
-        <p>${escapeHTML(song.Performer)} · peak #${Math.round(song.best_rank)}</p>
-      </div>
-      <a class="listen-link" href="${toSpotifySearchUrl(song.Song, song.Performer)}" target="_blank" rel="noopener noreferrer">
-        Listen on Spotify
-      </a>
-    </div>
-    <p class="compare-note">
-      This is not an “ideal song” score. It shows how one real hit differs from the average Hot 100 song in the same year.
-    </p>
-    <div class="compare-metrics">${rows.join("")}</div>
-  `);
+      <p class="compare-empty">We could not find “${escapeHTML(artistInput)}” in the Spotify catalog averages. Try another spelling.</p>
+    `);
+    return;
+  }
+
+  showRadarComparison(series);
+
+  const songFeatureRow = buildSongFeatureRow(billboardSong, spotifyTrack);
+  const hasSongFeatures = RADAR_FEATURES.some(({ key }) => Number.isFinite(+songFeatureRow[key]));
+
+  if (titleInput && !hasSongFeatures) {
+    container.html(
+      `<p class="compare-empty">No close track match for “${escapeHTML(titleInput)}”. Try another title or leave song blank to compare eras and artist only.</p>`
+    );
+    return;
+  }
+
+  container.html("");
 }
 
 function setupSongCompare() {
   const form = document.querySelector("#song-compare-form");
-  const input = document.querySelector("#song-search");
-  if (!form || !input) return;
+  const artistInput = document.querySelector("#artist-search");
+  const songInput = document.querySelector("#song-title-search");
+  const artistList = document.querySelector("#artist-suggestions");
+  const songList = document.querySelector("#song-suggestions");
+  if (!form || !artistInput) return;
+
+  const submit = () => {
+    lastRadarQuery = { artist: artistInput.value, song: songInput?.value || "" };
+    renderSongComparison(lastRadarQuery.artist, lastRadarQuery.song);
+  };
 
   form.addEventListener("submit", (event) => {
     event.preventDefault();
-    renderSongComparison(findSongMatch(input.value));
+    submit();
   });
 
-  input.value = "I Love You Billie Eilish";
-  renderSongComparison(findSongMatch(input.value));
+  attachAutocomplete(artistInput, artistList, (query) => filterArtistSuggestions(query));
+
+  if (songInput && songList) {
+    attachAutocomplete(songInput, songList, async (query) => {
+      if (!normalizeArtistKey(artistInput.value)) return [];
+      await loadSpotifyLookup();
+      ensureTrackIndex();
+      return filterSongSuggestions(artistInput.value, query);
+    });
+
+    artistInput.addEventListener("input", () => {
+      if (!normalizeArtistKey(artistInput.value)) songInput.value = "";
+    });
+  }
+
+  d3.select("#song-compare-result").html("");
+  showEraRadarComparison();
 }
 
 function normalizeFeatureValue(featureKey, value, yearly) {
@@ -988,11 +1284,165 @@ function formatDelta(featureKey, delta) {
   return `${delta >= 0 ? "+" : ""}${delta.toFixed(3)}`;
 }
 
+function eraForYear(year) {
+  if (year < 2010) return "Pre-streaming";
+  if (year < 2020) return "Streaming growth";
+  return "Streaming native";
+}
+
+function exceptionCompareThreshold(featureKey) {
+  return {
+    duration_min: 0.2,
+    danceability: 0.05,
+    energy: 0.05,
+    acousticness: 0.06,
+  }[featureKey];
+}
+
+function buildMetricVsMean(song, featureKey) {
+  const eraName = eraForYear(song.year);
+  const eraRow = eraSummaryData.find((d) => d?.era === eraName);
+  if (!eraRow) return "";
+
+  const value = song[featureKey];
+  const mean = eraRow[featureKey];
+  if (!Number.isFinite(value) || !Number.isFinite(mean)) return "";
+
+  const delta = value - mean;
+  const threshold = exceptionCompareThreshold(featureKey);
+  if (threshold == null || Math.abs(delta) < threshold) return "";
+
+  return `${formatDelta(featureKey, delta)} vs ${eraName.toLowerCase()} mean (${featureMeta[featureKey].format(mean)})`;
+}
+
 function barPct(normalized) {
   if (!Number.isFinite(normalized)) return 0;
   const pct = Math.round(normalized * 100);
   // Prevent “invisible” bars when value is at dataset min.
   return pct === 0 ? 2 : pct;
+}
+
+function renderMiniPairBars(selection, options = {}) {
+  const width = options.width || 210;
+  const labelCol = 68;
+  const trackWidth = width - labelCol - 4;
+  const barTop = 6;
+  const rowStep = 20;
+  const barHeight = 10;
+  const scaleY = barTop + rowStep + barHeight + 5;
+  const height = scaleY + 11;
+
+  selection.each(function (card) {
+    const host = d3.select(this);
+    host.selectAll("svg").remove();
+
+    const rows = [
+      {
+        label: "Era average",
+        norm: card.baselineNormalized,
+        color: colors.eras["Streaming growth"],
+        title: `Era average: ${card.baselineLabel}`,
+      },
+      {
+        label: "Top #1",
+        norm: card.normalized,
+        color: colors.eras["Streaming native"],
+        title: `Top #1 example: ${card.valueLabel}`,
+      },
+    ];
+
+    const svg = host
+      .append("svg")
+      .attr("class", "native-bar-svg")
+      .attr("viewBox", `0 0 ${width} ${height}`)
+      .attr("role", "img")
+      .attr("aria-label", `${card.label} comparison bars`);
+
+    const g = svg.append("g").attr("transform", `translate(${labelCol},${barTop})`);
+
+    const row = g
+      .selectAll(".mini-bar-row")
+      .data(rows)
+      .join("g")
+      .attr("class", "mini-bar-row")
+      .attr("transform", (_, index) => `translate(0,${index * rowStep})`);
+
+    row
+      .append("text")
+      .attr("class", "mini-bar-label")
+      .attr("x", -6)
+      .attr("y", 9)
+      .attr("text-anchor", "end")
+      .text((d) => d.label);
+
+    row
+      .append("rect")
+      .attr("class", "mini-bar-track")
+      .attr("width", trackWidth)
+      .attr("height", barHeight)
+      .attr("rx", 2);
+
+    row
+      .append("rect")
+      .attr("class", "mini-bar-fill")
+      .attr("width", (d) => (barPct(d.norm) / 100) * trackWidth)
+      .attr("height", barHeight)
+      .attr("rx", 2)
+      .attr("fill", (d) => d.color)
+      .each(function (rowData) {
+        d3.select(this).append("title").text(rowData.title);
+      });
+
+    g.append("text")
+      .attr("class", "native-scale-label")
+      .attr("x", 0)
+      .attr("y", scaleY - barTop)
+      .attr("dominant-baseline", "hanging")
+      .text(`Low ${card.rangeMinLabel}`);
+
+    g.append("text")
+      .attr("class", "native-scale-label")
+      .attr("x", trackWidth)
+      .attr("y", scaleY - barTop)
+      .attr("text-anchor", "end")
+      .attr("dominant-baseline", "hanging")
+      .text(`High ${card.rangeMaxLabel}`);
+  });
+}
+
+function renderIdealFeatureChart(container, row, eraName) {
+  container.selectAll("*").remove();
+
+  const chartFeatures = [
+    "duration_min",
+    "danceability",
+    "energy",
+    "loudness",
+    "acousticness",
+    "valence",
+  ];
+
+  const data = chartFeatures
+    .map((key) => ({
+      key,
+      label: featureMeta[key].label,
+      display: featureMeta[key].format(row[key]),
+      value: row[key],
+    }))
+    .filter((d) => Number.isFinite(d.value));
+
+  if (!data.length) return;
+
+  const list = container
+    .append("ul")
+    .attr("class", "ideal-feature-list")
+    .attr("role", "list")
+    .attr("aria-label", `Ideal hit era averages for ${eraName}`);
+
+  const items = list.selectAll("li").data(data, (d) => d.key).join("li").attr("class", "ideal-feature-item");
+
+  items.append("span").attr("class", "ideal-feature-label").text((d) => d.label);
+  items.append("span").attr("class", "ideal-feature-mean").text((d) => d.display);
 }
 
 function representativeEraRange(songsInEra, featureKey) {
@@ -1100,7 +1550,9 @@ function renderNativeProfile(songs, yearly, eraSummary, eraName) {
   container
     .append("p")
     .attr("class", "native-profile-meta")
-    .text("Bars compare a latest #1 example (orange) to the selected era’s average (blue).");
+    .text(
+      "Hear the difference — for each feature, play a recent top charter and see how it compares to that era’s average in the bars."
+    );
 
   const grid = container.append("div").attr("class", "native-profile-grid");
   const cardSel = grid.selectAll(".native-card").data(cards, (d) => d.key).join("article").attr("class", "native-card");
@@ -1108,35 +1560,7 @@ function renderNativeProfile(songs, yearly, eraSummary, eraName) {
   cardSel.append("h4").text((d) => d.label);
   cardSel.append("p").attr("class", "native-rule").text((d) => d.rule.replace("latest year", eraPhrase));
 
-  const barGroups = cardSel
-    .append("div")
-    .attr("class", "native-bar-group")
-    .attr("aria-label", (d) => `${d.label} comparison bars`);
-
-  const baselineRow = barGroups.append("div").attr("class", "native-bar-row");
-  baselineRow.append("span").attr("class", "native-bar-label").text("Era average");
-  baselineRow
-    .append("div")
-    .attr("class", "native-bar-track")
-    .attr("title", (d) => `Era average: ${d.baselineLabel}`)
-    .append("div")
-    .attr("class", "native-bar-fill native-bar-fill-baseline")
-    .style("width", (d) => `${Math.round(barPct(d.baselineNormalized))}%`);
-
-  const topRow = barGroups.append("div").attr("class", "native-bar-row");
-  topRow.append("span").attr("class", "native-bar-label").text("Top #1 example");
-  topRow
-    .append("div")
-    .attr("class", "native-bar-track")
-    .attr("title", (d) => `Top #1 example: ${d.valueLabel}`)
-    .append("div")
-    .attr("class", "native-bar-fill")
-    .style("width", (d) => `${Math.round(barPct(d.normalized))}%`);
-
-  const scaleRow = cardSel.append("div").attr("class", "native-scale-row").attr("aria-hidden", "true");
-  const scaleTrack = scaleRow.append("div").attr("class", "native-scale-track");
-  scaleTrack.append("span").attr("class", "native-scale-label").text((d) => `Low ${d.rangeMinLabel}`);
-  scaleTrack.append("span").attr("class", "native-scale-label").text((d) => `High ${d.rangeMaxLabel}`);
+  cardSel.append("div").attr("class", "native-bar-chart").call(renderMiniPairBars);
 
   const story = cardSel.append("div").attr("class", "native-story");
   const songLine = story.append("p").attr("class", "native-songline");
@@ -1181,27 +1605,15 @@ function renderIdealSong(eraSummary, eraName) {
 
   container.selectAll("*").remove();
 
-  container.append("p").attr("class", "ideal-title").text(`An “ideal hit” profile for ${eraName} (from averages)`);
-  container.append("p").attr("class", "ideal-kicker").text("Era baseline, not a literal perfect song");
+  container.append("p").attr("class", "ideal-title").text('The “ideal hit” profile (from averages)');
   container.append("p").attr("class", "ideal-subtitle").text(eraBlurb);
   container
     .append("p")
     .attr("class", "ideal-note")
     .text("While these aren’t the traits of a real song, they reflect the average feature values of hits in this era.");
 
-  const idealTraits = [
-    { label: "Duration", value: featureMeta.duration_min.format(row.duration_min) },
-    { label: "Danceability", value: featureMeta.danceability.format(row.danceability) },
-    { label: "Energy", value: featureMeta.energy.format(row.energy) },
-    { label: "Loudness", value: featureMeta.loudness.format(row.loudness) },
-    { label: "Acousticness", value: featureMeta.acousticness.format(row.acousticness) },
-    { label: "Valence", value: featureMeta.valence.format(row.valence) },
-  ];
-
-  const dl = container.append("dl").attr("class", "ideal-dl");
-  const traitRows = dl.selectAll("div").data(idealTraits).join("div");
-  traitRows.append("dt").text((d) => d.label);
-  traitRows.append("dd").text((d) => d.value);
+  const chartHost = container.append("div").attr("class", "ideal-song-chart").attr("id", "ideal-song-chart");
+  renderIdealFeatureChart(chartHost, row, eraName);
 }
 
 function setProfileEra(nextEra) {
@@ -1278,22 +1690,26 @@ function setupScrolly() {
 }
 
 async function init() {
-  const [yearly, eraSummary, songs] = await Promise.all([
+  const [yearly, eraSummary, songs, artistAverages, norms] = await Promise.all([
     d3.csv(files.yearly, parseRow),
     d3.csv(files.eraSummary, parseRow),
     d3.csv(files.songs, parseRow),
+    d3.csv(files.artistAverages, parseRow),
+    fetch(files.radarNorms).then((response) => response.json()),
   ]);
 
   eraSummaryData = eraOrder.map((era) => eraSummary.find((d) => d.era === era));
   yearlyData = yearly;
   songsData = songs;
-  moodMapSample = buildMoodMapSample(songsData);
-  activeMoodSong = moodMapSample.find((d) => d.Song === "I Love You") || moodMapSample[0];
+  artistAveragesData = artistAverages.map((row) => ({
+    ...row,
+    artist_key: row.artist_key || normalizeArtistKey(row.artist),
+  }));
+  radarNorms = norms;
 
   setActiveFeature(activeEraFeature);
   setupFeaturePills();
   setupScrolly();
-  setupMoodMap();
   setProfileEra(profileEra);
   setupEraToggle();
   setupSongCarousel();
@@ -1303,9 +1719,11 @@ async function init() {
     "resize",
     debounce(() => {
       setActiveFeature(activeEraFeature);
-      renderMoodMap();
       setProfileEra(profileEra);
       renderSongCarousel();
+      if (radarComparisonState?.series) {
+        renderRadarChart(radarComparisonState.series);
+      }
     }, 200)
   );
 }
