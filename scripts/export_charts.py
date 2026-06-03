@@ -1,3 +1,5 @@
+"""Optional static PNG exports for docs. Live proposal and prototype charts use D3 in the browser."""
+
 from pathlib import Path
 
 import matplotlib.pyplot as plt
@@ -17,9 +19,9 @@ ACCENT = "#d84f2a"
 BLUE = "#2364aa"
 GREEN = "#2f7d56"
 ERA_COLORS = {
-    "Pre-streaming": "#6d675f",
-    "Streaming growth": "#2364aa",
-    "Streaming native": "#d84f2a",
+    "Pre-streaming": "#b3b3b3",
+    "Streaming growth": "#1db954",
+    "Streaming native": "#212121",
 }
 
 

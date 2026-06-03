@@ -15,9 +15,9 @@ const colors = {
   muted: "#6d675f",
   ink: "#191714",
   eras: {
-    "Pre-streaming": "#6d675f",
-    "Streaming growth": "#2364aa",
-    "Streaming native": "#d84f2a",
+    "Pre-streaming": "#b3b3b3",
+    "Streaming growth": "#1db954",
+    "Streaming native": "#212121",
   },
 };
 
@@ -308,25 +308,74 @@ function eraProfile(data) {
 }
 
 function renderOutliers(data) {
-  const container = d3.select("#outliers");
-  const format = d3.format(".2f");
-  container
-    .selectAll(".outlier")
-    .data(data.slice(0, 9))
-    .join("div")
-    .attr("class", "outlier")
-    .html(
-      (d) => `
-        <strong>${d.Song}</strong>
-        <span>${d.Performer} · ${d.year}</span>
-        <dl>
-          <dt>Duration</dt><dd>${format(d.duration_min)} min</dd>
-          <dt>Energy</dt><dd>${format(d.energy)}</dd>
-          <dt>Acoustic</dt><dd>${format(d.acousticness)}</dd>
-          <dt>Peak</dt><dd>#${Math.round(d.best_rank)}</dd>
-        </dl>
-      `
-    );
+  const frame = chartFrame("#outliers", { top: 16, right: 16, bottom: 44, left: 48 });
+  if (!frame) return;
+
+  const { g, innerWidth, innerHeight } = frame;
+  const points = data.slice(0, 12);
+  const x = d3
+    .scaleLinear()
+    .domain(d3.extent(points, (d) => d.duration_min))
+    .nice()
+    .range([0, innerWidth]);
+  const y = d3
+    .scaleLinear()
+    .domain([0, d3.max(points, (d) => d.energy) * 1.05])
+    .range([innerHeight, 0]);
+  const radius = d3
+    .scaleSqrt()
+    .domain(d3.extent(points, (d) => Math.abs(d.weird_score)))
+    .range([5, 14]);
+
+  addGrid(g, x, y, innerWidth, innerHeight);
+
+  g.selectAll(".outlier-point")
+    .data(points)
+    .join("circle")
+    .attr("class", "outlier-point")
+    .attr("cx", (d) => x(d.duration_min))
+    .attr("cy", (d) => y(d.energy))
+    .attr("r", (d) => radius(Math.abs(d.weird_score)))
+    .attr("fill", colors.accent)
+    .attr("fill-opacity", 0.72)
+    .attr("stroke", colors.ink)
+    .attr("stroke-width", 1)
+    .on("mouseenter", function (event, d) {
+      d3.select(this).attr("fill-opacity", 1).attr("r", radius(Math.abs(d.weird_score)) + 2);
+      showTip(
+        event,
+        `<strong>${d.Song}</strong><br>${d.Performer} · ${d.year}<br>${d.duration_min.toFixed(
+          2
+        )} min · energy ${d.energy.toFixed(2)}<br>Peak #${Math.round(d.best_rank)}`
+      );
+    })
+    .on("mouseleave", function (event, d) {
+      d3.select(this).attr("fill-opacity", 0.72).attr("r", radius(Math.abs(d.weird_score)));
+      hideTip();
+    });
+
+  g.append("g")
+    .attr("class", "axis")
+    .attr("transform", `translate(0,${innerHeight})`)
+    .call(d3.axisBottom(x).ticks(5).tickFormat((d) => `${d} min`));
+
+  g.append("g").attr("class", "axis").call(d3.axisLeft(y).ticks(5));
+
+  frame.svg
+    .append("text")
+    .attr("class", "annotation axis-label-x")
+    .attr("x", 48 + innerWidth / 2)
+    .attr("y", 16 + innerHeight + 36)
+    .attr("text-anchor", "middle")
+    .text("Duration (min)");
+
+  frame.svg
+    .append("text")
+    .attr("class", "annotation axis-label-y")
+    .attr("text-anchor", "middle")
+    .attr("dominant-baseline", "middle")
+    .attr("transform", `translate(16, ${16 + innerHeight / 2}) rotate(-90)`)
+    .text("Energy");
 }
 
 async function init() {
@@ -374,6 +423,7 @@ async function init() {
         value: (d) => d.toFixed(3),
         color: colors.green,
       });
+      renderOutliers(outliers);
     }, 200)
   );
 }
