@@ -24,6 +24,7 @@ const colors = {
     "Streaming growth": "#1db954",
     "Streaming native": "#212121",
   },
+  histBar: "#b8e6c8",
 };
 
 const eraOrder = ["Pre-streaming", "Streaming growth", "Streaming native"];
@@ -108,6 +109,10 @@ let lastRadarQuery = null;
 let radarComparisonState = null;
 let activeEraFeature = "duration_min";
 let profileEra = "Streaming native";
+let profileFeatureKey = "duration_min";
+let nativeProfileCardsCache = null;
+let profileHistResizeObserver = null;
+let profileHistResizeTimer = null;
 let scrollLocked = false;
 let scrollLockTimer = null;
 let activeSongIndex = 0;
@@ -237,6 +242,12 @@ function showTip(event, html) {
 
 function hideTip() {
   tooltip.style("opacity", 0);
+}
+
+function histBinTipHtml(bin, meta) {
+  const count = bin.length;
+  const songWord = count === 1 ? "song" : "songs";
+  return `<strong>${count.toLocaleString()} ${songWord}</strong><br>${meta.format(bin.x0)} – ${meta.format(bin.x1)}`;
 }
 
 function computeYAxisLayout(yScale, meta) {
@@ -1387,7 +1398,7 @@ function appendHistAxisBreak(g, { chartBottom, bucketLabelY, plotLeft, zeroLabel
     .attr("x1", 0)
     .attr("x2", 0)
     .attr("y1", chartBottom)
-    .attr("y2", chartBottom + 3);
+    .attr("y2", chartBottom - 4);
 
   g.append("line")
     .attr("class", "mini-hist-x-axis mini-hist-x-axis-stub")
@@ -1411,24 +1422,45 @@ function appendHistAxisBreak(g, { chartBottom, bucketLabelY, plotLeft, zeroLabel
   });
 }
 
-function appendBucketLabels(g, bins, meta, xScale, xDomainMin, chartBottom, belowY) {
-  const tick = meta.tickFormat || ((d) => meta.format(d));
-  const boundaries = bins.length ? [xDomainMin, ...bins.map((bin) => bin.x1)] : [xDomainMin];
+function histXTickCount(plotWidth) {
+  return Math.max(4, Math.min(7, Math.floor(plotWidth / 56)));
+}
 
-  boundaries.forEach((value, index) => {
-    if (index % 2 !== 0) return;
+function formatHistXTick(featureKey, value) {
+  if (!Number.isFinite(value)) return "";
+  if (featureKey === "duration_min") return d3.format(".1f")(value);
+  if (featureKey === "loudness") return d3.format(".0f")(value);
+  if (value === 0) return "0";
+  if (value === 1) return "1";
+  return d3.format(".2f")(value);
+}
 
+function histXTickValues(featureKey, xDomainMin, rangeMin, rangeMax, plotWidth) {
+  const showAxisBreak = needsHistAxisBreak(featureKey, xDomainMin);
+  const tickDomain = showAxisBreak ? [rangeMin, rangeMax] : [xDomainMin, rangeMax];
+  if (!Number.isFinite(tickDomain[0]) || !Number.isFinite(tickDomain[1])) return [];
+  if (tickDomain[0] === tickDomain[1]) return [tickDomain[0]];
+  return d3.scaleLinear().domain(tickDomain).nice().ticks(histXTickCount(plotWidth));
+}
+
+function appendHistXAxis(g, card, meta, xScale, xDomainMin, chartBottom, belowY, layout, options = {}) {
+  const { rangeMin, rangeMax, featureKey } = card;
+  const { plotLeft, trackWidth, tickHeight = 4 } = layout;
+  const plotWidth = trackWidth - plotLeft;
+  const tickValues = histXTickValues(featureKey, xDomainMin, rangeMin, rangeMax, plotWidth);
+
+  tickValues.forEach((value, index) => {
     const x = xScale(value);
     let anchor = "middle";
     if (index === 0) anchor = "start";
-    else if (index === boundaries.length - 1) anchor = "end";
+    else if (index === tickValues.length - 1) anchor = "end";
 
     g.append("line")
       .attr("class", "mini-hist-x-tick")
       .attr("x1", x)
       .attr("x2", x)
       .attr("y1", chartBottom)
-      .attr("y2", chartBottom + 3);
+      .attr("y2", chartBottom - tickHeight);
 
     g.append("text")
       .attr("class", "mini-hist-bucket-label")
@@ -1436,8 +1468,19 @@ function appendBucketLabels(g, bins, meta, xScale, xDomainMin, chartBottom, belo
       .attr("y", belowY)
       .attr("text-anchor", anchor)
       .attr("dominant-baseline", "hanging")
-      .text(value === 0 ? "0" : tick(value));
+      .text(formatHistXTick(featureKey, value));
   });
+
+  const titleY = belowY + (options.xTitleGap ?? 12);
+  g.append("text")
+    .attr("class", "mini-hist-x-title")
+    .attr("x", plotLeft + plotWidth / 2)
+    .attr("y", titleY)
+    .attr("text-anchor", "middle")
+    .attr("dominant-baseline", "hanging")
+    .text(meta.axisLabel || meta.label);
+
+  return titleY + 8;
 }
 
 function buildFeatureBarCard({ song, featureKey, eraName, eraRow, eraSongs, songRowLabel = "This song" }) {
@@ -1562,15 +1605,80 @@ function formatHistCount(count) {
   return String(Math.round(count));
 }
 
+function histYTickValues(maxCount, tickCount = 5) {
+  if (!Number.isFinite(maxCount) || maxCount <= 0) return [0];
+  const ticks = d3.scaleLinear().domain([0, maxCount]).nice().ticks(tickCount);
+  return [...new Set([0, ...ticks])].sort((a, b) => a - b);
+}
+
+function appendHistYAxis(yAxis, g, params) {
+  const {
+    yAxisWidth,
+    chartTop,
+    chartBottom,
+    barHeight,
+    maxCount,
+    plotLeft,
+    trackWidth,
+    tickCount = 5,
+  } = params;
+  const tickValues = histYTickValues(maxCount, tickCount);
+
+  yAxis
+    .append("text")
+    .attr("class", "mini-hist-y-title")
+    .attr("transform", `translate(7, ${(chartTop + chartBottom) / 2}) rotate(-90)`)
+    .attr("text-anchor", "middle")
+    .text("Hits");
+
+  yAxis
+    .append("line")
+    .attr("class", "mini-hist-y-axis")
+    .attr("x1", yAxisWidth)
+    .attr("x2", yAxisWidth)
+    .attr("y1", chartTop)
+    .attr("y2", chartBottom);
+
+  tickValues.forEach((value) => {
+    const y = chartBottom - barHeight(value);
+
+    yAxis
+      .append("line")
+      .attr("class", "mini-hist-y-tick")
+      .attr("x1", yAxisWidth - 4)
+      .attr("x2", yAxisWidth)
+      .attr("y1", y)
+      .attr("y2", y);
+
+    yAxis
+      .append("text")
+      .attr("class", "mini-hist-y-label")
+      .attr("x", yAxisWidth - 3)
+      .attr("y", y)
+      .attr("text-anchor", "end")
+      .attr("dominant-baseline", "middle")
+      .text(formatHistCount(value));
+  });
+
+  g.selectAll(".mini-hist-y-grid")
+    .data(tickValues.filter((value) => value > 0))
+    .join("line")
+    .attr("class", "mini-hist-y-grid")
+    .attr("x1", plotLeft)
+    .attr("x2", trackWidth)
+    .attr("y1", (value) => chartBottom - barHeight(value))
+    .attr("y2", (value) => chartBottom - barHeight(value));
+}
+
 function renderMiniHistogram(selection, options = {}) {
   const defaultWidth = options.width || 210;
-  const padX = 4;
-  const yAxisWidth = 24;
-  const meanLabelY = 8;
-  const chartTop = 14;
-  const chartHeight = 36;
+  const padX = options.padX ?? 4;
+  const yAxisWidth = options.yAxisWidth ?? 24;
+  const meanLabelY = options.meanLabelY ?? 8;
+  const chartTop = options.chartTop ?? 14;
+  const chartHeight = options.chartHeight ?? 36;
   const chartBottom = chartTop + chartHeight;
-  const bucketLabelY = chartBottom + 8;
+  const bucketLabelY = chartBottom + (options.bucketLabelGap ?? 8);
 
   selection.each(function (card) {
     const host = d3.select(this);
@@ -1578,7 +1686,7 @@ function renderMiniHistogram(selection, options = {}) {
 
     const width = options.width || card.barWidth || defaultWidth;
     const trackWidth = width - padX * 2 - yAxisWidth;
-    const eraColor = card.eraColor || colors.eras["Streaming growth"];
+    const barFill = colors.histBar;
     const { rangeMin, rangeMax, xDomainMin } = card;
     const bins = card.histogram || [];
     const meta = featureMeta[card.featureKey] || { format: (d) => String(d) };
@@ -1606,51 +1714,18 @@ function renderMiniHistogram(selection, options = {}) {
       );
 
     const yAxis = svg.append("g").attr("transform", `translate(${padX},0)`);
-
-    yAxis
-      .append("text")
-      .attr("class", "mini-hist-y-title")
-      .attr("transform", `translate(7, ${(chartTop + chartBottom) / 2}) rotate(-90)`)
-      .attr("text-anchor", "middle")
-      .text("Hits");
-
-    yAxis
-      .append("text")
-      .attr("class", "mini-hist-y-label")
-      .attr("x", yAxisWidth - 3)
-      .attr("y", chartBottom)
-      .attr("text-anchor", "end")
-      .attr("dominant-baseline", "middle")
-      .text("0");
-
-    if (maxCount > 0) {
-      yAxis
-        .append("text")
-        .attr("class", "mini-hist-y-label")
-        .attr("x", yAxisWidth - 3)
-        .attr("y", chartTop)
-        .attr("text-anchor", "end")
-        .attr("dominant-baseline", "middle")
-        .text(formatHistCount(maxCount));
-    }
-
-    yAxis
-      .append("line")
-      .attr("class", "mini-hist-y-axis")
-      .attr("x1", yAxisWidth)
-      .attr("x2", yAxisWidth)
-      .attr("y1", chartTop)
-      .attr("y2", chartBottom);
-
     const g = svg.append("g").attr("transform", `translate(${padX + yAxisWidth},0)`);
 
-    g.append("rect")
-      .attr("class", "mini-hist-track")
-      .attr("x", plotLeft)
-      .attr("y", chartTop)
-      .attr("width", plotWidth)
-      .attr("height", chartHeight)
-      .attr("rx", 2);
+    appendHistYAxis(yAxis, g, {
+      yAxisWidth,
+      chartTop,
+      chartBottom,
+      barHeight,
+      maxCount,
+      plotLeft,
+      trackWidth,
+      tickCount: options.yTickCount ?? 5,
+    });
 
     g.selectAll(".mini-hist-bar")
       .data(bins)
@@ -1660,12 +1735,17 @@ function renderMiniHistogram(selection, options = {}) {
       .attr("y", (bin) => chartBottom - barHeight(bin.length))
       .attr("width", (bin) => miniHistBarGeometry(bin, xScale).width)
       .attr("height", (bin) => barHeight(bin.length))
-      .attr("fill", eraColor)
-      .append("title")
-      .text(
-        (bin) =>
-          `${bin.length.toLocaleString()} hit${bin.length === 1 ? "" : "s"} · ${meta.format(bin.x0)} – ${meta.format(bin.x1)}`
-      );
+      .attr("fill", barFill)
+      .attr("opacity", 0.92)
+      .on("mouseenter", function (event, bin) {
+        d3.select(this).attr("opacity", 1);
+        showTip(event, histBinTipHtml(bin, meta));
+      })
+      .on("mousemove", (event, bin) => showTip(event, histBinTipHtml(bin, meta)))
+      .on("mouseleave", function () {
+        d3.select(this).attr("opacity", 0.92);
+        hideTip();
+      });
 
     g.append("line")
       .attr("class", "mini-hist-x-axis")
@@ -1698,8 +1778,6 @@ function renderMiniHistogram(selection, options = {}) {
         .text("Mean");
     }
 
-    appendBucketLabels(g, bins, meta, xScale, xDomainMin, chartBottom, bucketLabelY);
-
     if (showAxisBreak) {
       appendHistAxisBreak(g, {
         chartBottom,
@@ -1709,8 +1787,24 @@ function renderMiniHistogram(selection, options = {}) {
       });
     }
 
-    const height = bucketLabelY + 10;
+    const height = appendHistXAxis(
+      g,
+      card,
+      meta,
+      xScale,
+      xDomainMin,
+      chartBottom,
+      bucketLabelY,
+      { plotLeft, trackWidth, tickHeight: options.tickHeight ?? 4 },
+      { xTitleGap: options.xTitleGap ?? 12 }
+    );
     svg.attr("viewBox", `0 0 ${width} ${height}`);
+    if (options.fillContainer) {
+      svg
+        .attr("width", "100%")
+        .attr("height", "100%")
+        .attr("preserveAspectRatio", "xMidYMid meet");
+    }
   });
 }
 
@@ -1767,11 +1861,14 @@ function pickClosestToEraBaseline(candidates, featureKey, baseline) {
   });
 }
 
+function nativeProfileCaptionText(eraName) {
+  const eraPhrase = `the ${eraName.toLowerCase()} era`;
+  return `Pick a feature to see how Hot 100 hits in ${eraPhrase} are distributed. The highlighted #1 from the latest chart year is the recent topper closest to that era’s average.`;
+}
+
 function renderNativeProfile(songs, yearly, eraSummary, eraName) {
   const container = d3.select("#native-profile");
-  const caption = d3.select("#native-profile-caption");
   if (container.empty()) return;
-  const eraPhrase = `the ${eraName.toLowerCase()} era`;
 
   const eraSongs = songs.filter((d) => d.era === eraName);
   const latestYear = d3.max(eraSongs, (d) => d.year);
@@ -1784,12 +1881,10 @@ function renderNativeProfile(songs, yearly, eraSummary, eraName) {
   const eraRow = eraSummary.find((d) => d?.era === eraName);
   if (!latestTop.length || !Number.isFinite(latestYear)) {
     container.html("<p>No chart-topper data available for this era.</p>");
-    caption.text("");
     return;
   }
   if (!eraRow) {
     container.html("<p>No era baseline available.</p>");
-    caption.text("");
     return;
   }
 
@@ -1869,7 +1964,6 @@ function renderNativeProfile(songs, yearly, eraSummary, eraName) {
       rangeMinLabel,
       rangeMaxLabel,
       histogram: featureHistogram(eraValues, xDomainMin, rangeMax),
-      eraColor: colors.eras["Streaming growth"],
       songColor: colors.ink,
       baselineRowLabel: "Era average",
       songRowLabel: "Top #1",
@@ -1878,38 +1972,155 @@ function renderNativeProfile(songs, yearly, eraSummary, eraName) {
 
   container.selectAll("*").remove();
 
-  if (!caption.empty()) {
-    caption.attr("aria-hidden", null).text(
-      `Each card picks the #1 hit closest to the era average for that feature among recent chart-toppers in ${eraPhrase}. Histograms show how all Hot 100 hits in this era are distributed, with the era mean labeled.`
-    );
+  const viz = container.append("div").attr("class", "native-profile-viz");
+
+  viz
+    .append("p")
+    .attr("class", "native-profile-caption")
+    .text(nativeProfileCaptionText(eraName));
+
+  viz
+    .append("div")
+    .attr("class", "profile-feature-pills feature-pills")
+    .attr("role", "group")
+    .attr("aria-label", "Select audio feature for hit distribution")
+    .selectAll("button")
+    .data(cards, (d) => d.key)
+    .join("button")
+    .attr("type", "button")
+    .attr("class", (d) => `profile-feature-pill${d.key === profileFeatureKey ? " active" : ""}`)
+    .attr("data-feature", (d) => d.key)
+    .text((d) => d.label)
+    .on("click", (_event, d) => {
+      profileFeatureKey = d.key;
+      updateNativeProfileFeatureView(container, cards);
+    });
+
+  viz.append("div").attr("class", "native-hist-chart native-hist-chart--main");
+  viz.append("article").attr("class", "native-story-card");
+
+  updateNativeProfileFeatureView(container, cards);
+}
+
+function nativeProfileHistLayout(histHost, profileContainer) {
+  const node = histHost?.node?.() || histHost;
+  const fallback = {
+    width: 520,
+    chartTop: 16,
+    chartHeight: 180,
+    yAxisWidth: 38,
+    yTickCount: 6,
+    meanLabelY: 10,
+    bucketLabelGap: 12,
+    needsRetry: false,
+  };
+  if (!node) return fallback;
+
+  const width = Math.max(280, Math.round(node.clientWidth || node.getBoundingClientRect().width));
+  let hostHeight = Math.round(node.clientHeight || node.getBoundingClientRect().height);
+
+  if (hostHeight < 96 && profileContainer && !profileContainer.empty()) {
+    const profileNode = profileContainer.node();
+    const vizNode = profileContainer.select(".native-profile-viz").node();
+    if (profileNode && vizNode) {
+      const reserved = profileContainer
+        .selectAll(".native-profile-caption, .profile-feature-pills, .native-story-card")
+        .nodes()
+        .reduce((sum, el) => sum + (el?.offsetHeight || 0), 0);
+      const gap = 14 * 2;
+      hostHeight = Math.max(180, profileNode.clientHeight - reserved - gap - 36);
+    }
   }
 
-  const grid = container.append("div").attr("class", "native-profile-grid");
-  const cardSel = grid.selectAll(".native-card").data(cards, (d) => d.key).join("article").attr("class", "native-card");
+  const chartTop = 16;
+  const bucketLabelGap = 12;
+  const overhead = chartTop + bucketLabelGap + 36;
+  const chartHeight = Math.max(120, hostHeight - overhead);
 
-  cardSel.append("h4").text((d) => d.label);
+  return {
+    width,
+    chartTop,
+    chartHeight,
+    yAxisWidth: 38,
+    yTickCount: Math.min(8, Math.max(5, Math.round(chartHeight / 28))),
+    meanLabelY: 10,
+    bucketLabelGap,
+    needsRetry: hostHeight < 96,
+  };
+}
 
-  cardSel.append("div").attr("class", "native-hist-chart").call(renderMiniHistogram);
+function refreshNativeProfileHistogram(container) {
+  if (!nativeProfileCardsCache?.length || container.empty()) return;
+  const histSel = container.select(".native-hist-chart--main");
+  const card =
+    nativeProfileCardsCache.find((d) => d.key === profileFeatureKey) || nativeProfileCardsCache[0];
+  if (!card || histSel.empty()) return;
 
-  const story = cardSel.append("div").attr("class", "native-story");
+  const layout = nativeProfileHistLayout(histSel, container);
+  const { needsRetry: _retry, ...histOptions } = layout;
+  histSel.datum(card).call(renderMiniHistogram, { ...histOptions, fillContainer: true });
+}
+
+function observeProfileHistogram(container) {
+  const histNode = container.select(".native-hist-chart--main").node();
+  const vizNode = container.select(".native-profile-viz").node();
+  if (!histNode || typeof ResizeObserver === "undefined") return;
+
+  profileHistResizeObserver?.disconnect();
+  profileHistResizeObserver = new ResizeObserver(() => {
+    clearTimeout(profileHistResizeTimer);
+    profileHistResizeTimer = setTimeout(() => refreshNativeProfileHistogram(container), 80);
+  });
+
+  profileHistResizeObserver.observe(histNode);
+  if (vizNode) profileHistResizeObserver.observe(vizNode);
+}
+
+function updateNativeProfileFeatureView(container, cards, retrying = false) {
+  const card = cards.find((d) => d.key === profileFeatureKey) || cards[0];
+  if (!card) return;
+
+  nativeProfileCardsCache = cards;
+  profileFeatureKey = card.key;
+
+  container
+    .selectAll(".profile-feature-pill")
+    .classed("active", (d) => d.key === profileFeatureKey);
+
+  const histSel = container.select(".native-hist-chart--main");
+  const layout = nativeProfileHistLayout(histSel, container);
+  if (layout.needsRetry && !retrying) {
+    requestAnimationFrame(() => updateNativeProfileFeatureView(container, cards, true));
+    return;
+  }
+
+  const { needsRetry: _retry, ...histOptions } = layout;
+  histSel.datum(card).call(renderMiniHistogram, { ...histOptions, fillContainer: true });
+
+  observeProfileHistogram(container);
+
+  const storyCard = container.select(".native-story-card");
+  storyCard.selectAll("*").remove();
+
+  const story = storyCard.append("div").attr("class", "native-story");
   const songLine = story.append("p").attr("class", "native-songline");
-  songLine.append("strong").text((d) => d.song.Song);
-  songLine.append("span").text((d) => ` · ${d.song.Performer}`);
+  songLine.append("strong").text(card.song.Song);
+  songLine.append("span").text(` · ${card.song.Performer}`);
 
   const metricLine = story.append("p").attr("class", "native-metricline");
-  metricLine.append("span").text((d) => `${d.sentence}: `);
-  metricLine.append("span").attr("class", "native-metric").text((d) => d.valueLabel);
+  metricLine.append("span").text(`${card.sentence}: `);
+  metricLine.append("span").attr("class", "native-metric").text(card.valueLabel);
   metricLine
     .append("span")
     .attr("class", "native-delta")
-    .text((d) => `(Δ ${d.deltaLabel} vs average ${d.baselineLabel})`);
+    .text(`(Δ ${card.deltaLabel} vs average ${card.baselineLabel})`);
 
-  cardSel
+  storyCard
     .append("a")
     .attr("class", "native-play")
     .attr("target", "_blank")
     .attr("rel", "noopener noreferrer")
-    .attr("href", (d) => toSpotifySearchUrl(d.song.Song, d.song.Performer))
+    .attr("href", toSpotifySearchUrl(card.song.Song, card.song.Performer))
     .text("Play on Spotify");
 }
 
