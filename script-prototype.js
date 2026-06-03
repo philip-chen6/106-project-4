@@ -490,20 +490,29 @@ function renderSongCarousel() {
   if (container.empty()) return;
 
   const song = curatedSongs[activeSongIndex];
-  const metrics = [
-    {
-      label: "Duration",
-      key: "duration_min",
-      value: `${song.duration_min.toFixed(2)} min`,
-    },
-    { label: "Energy", key: "energy", value: song.energy.toFixed(2) },
-    { label: "Danceability", key: "danceability", value: song.danceability.toFixed(2) },
-    { label: "Acousticness", key: "acousticness", value: song.acousticness.toFixed(2) },
-    { label: "Peak", value: `#${Math.round(song.best_rank)}`, peak: true },
-  ];
+  const eraName = eraForYear(song.year);
+  const eraRow = eraSummaryData.find((d) => d?.era === eraName);
+  const eraSongs = songsData.filter((d) => d.era === eraName);
+  const barFeatures = ["duration_min", "energy", "danceability", "acousticness"];
+  const barCards = eraRow
+    ? barFeatures.map((key) =>
+        buildFeatureBarCard({
+          song,
+          featureKey: key,
+          eraName,
+          eraRow,
+          eraSongs,
+          songRowLabel: "This hit",
+        })
+      )
+    : [];
 
-  container.html(`
-    <div class="song-card-main">
+  container.selectAll("*").remove();
+
+  const main = container
+    .append("div")
+    .attr("class", "song-card-main");
+  main.html(`
       <div>
         <h3>${song.song}</h3>
         <p class="song-artist">${song.performer} · ${song.year}</p>
@@ -511,21 +520,31 @@ function renderSongCarousel() {
       <a class="native-play" href="${toSpotifySearchUrl(song.song, song.performer)}" target="_blank" rel="noopener noreferrer">
         Play on Spotify
       </a>
-    </div>
-    <p class="song-why">${song.why}</p>
-    <dl class="song-metrics">
-      ${metrics
-        .map((metric) => {
-          const vsMean = metric.key ? buildMetricVsMean(song, metric.key) : "";
-          return `<div${metric.peak ? ' class="song-metric-peak"' : ""}>
-            <dt>${metric.label}</dt>
-            <dd>${metric.value}</dd>
-            ${vsMean ? `<p class="song-metric-vs">${vsMean}</p>` : ""}
-          </div>`;
-        })
-        .join("")}
-    </dl>
-  `);
+    `);
+
+  container.append("p").attr("class", "song-why").text(song.why);
+
+  const grid = container.append("div").attr("class", "song-feature-bars");
+
+  const barSel = grid
+    .selectAll(".song-bar-card")
+    .data(barCards, (d) => d.key)
+    .join("article")
+    .attr("class", "song-bar-card");
+
+  barSel.append("h4").text((d) => d.label);
+  barSel.append("div").attr("class", "native-bar-chart").call(renderMiniPairBars);
+  barSel
+    .append("p")
+    .attr("class", "song-metric-vs")
+    .text((d) => `Δ ${d.deltaLabel} vs ${eraName.toLowerCase()} mean (${d.baselineLabel})`);
+
+  grid
+    .append("div")
+    .attr("class", "song-metric-peak")
+    .html(
+      `<dt>Peak</dt><dd>#${Math.round(song.best_rank)}</dd>`
+    );
 
   if (!dots.empty()) {
     dots
@@ -1322,32 +1341,159 @@ function barPct(normalized) {
   return pct === 0 ? 2 : pct;
 }
 
+function featureHistogram(values, rangeMin, rangeMax, binCount = 10) {
+  const finite = values.filter((d) => Number.isFinite(d));
+  if (!finite.length || !Number.isFinite(rangeMin) || !Number.isFinite(rangeMax)) return [];
+
+  if (rangeMin === rangeMax) {
+    return [{ x0: rangeMin, x1: rangeMax, length: finite.length }];
+  }
+
+  const step = (rangeMax - rangeMin) / binCount;
+  const thresholds = Array.from({ length: binCount - 1 }, (_, index) => rangeMin + step * (index + 1));
+
+  return d3.bin().domain([rangeMin, rangeMax]).thresholds(thresholds)(finite);
+}
+
+function miniHistBarGeometry(bin, xScale, barGap = 1) {
+  const x0 = xScale(bin.x0);
+  const x1 = xScale(bin.x1);
+  const width = Math.max(x1 - x0 - barGap, 1);
+  const x = x0 + barGap / 2;
+  return { x, width, center: x + width / 2 };
+}
+
+function histXDomainMin(featureKey, rangeMin) {
+  if (featureKey === "acousticness") return 0;
+  return rangeMin;
+}
+
+function needsHistAxisBreak(featureKey, xDomainMin) {
+  if (featureKey === "acousticness") return false;
+  return Number.isFinite(xDomainMin) && xDomainMin > 0;
+}
+
+function appendHistAxisBreak(g, { chartBottom, bucketLabelY, plotLeft, zeroLabel }) {
+  g.append("text")
+    .attr("class", "mini-hist-bucket-label mini-hist-break-zero")
+    .attr("x", 0)
+    .attr("y", bucketLabelY)
+    .attr("text-anchor", "start")
+    .attr("dominant-baseline", "hanging")
+    .text(zeroLabel);
+
+  g.append("line")
+    .attr("class", "mini-hist-x-tick")
+    .attr("x1", 0)
+    .attr("x2", 0)
+    .attr("y1", chartBottom)
+    .attr("y2", chartBottom + 3);
+
+  g.append("line")
+    .attr("class", "mini-hist-x-axis mini-hist-x-axis-stub")
+    .attr("x1", 0)
+    .attr("x2", Math.max(plotLeft - 8, 2))
+    .attr("y1", chartBottom)
+    .attr("y2", chartBottom);
+
+  const slashPairs = [
+    [plotLeft - 8, plotLeft - 5],
+    [plotLeft - 5, plotLeft - 2],
+  ];
+
+  slashPairs.forEach(([x1, x2]) => {
+    g.append("line")
+      .attr("class", "mini-hist-axis-break")
+      .attr("x1", x1)
+      .attr("y1", chartBottom + 2)
+      .attr("x2", x2)
+      .attr("y2", chartBottom - 5);
+  });
+}
+
+function appendBucketLabels(g, bins, meta, xScale, xDomainMin, chartBottom, belowY) {
+  const tick = meta.tickFormat || ((d) => meta.format(d));
+  const boundaries = bins.length ? [xDomainMin, ...bins.map((bin) => bin.x1)] : [xDomainMin];
+
+  boundaries.forEach((value, index) => {
+    if (index % 2 !== 0) return;
+
+    const x = xScale(value);
+    let anchor = "middle";
+    if (index === 0) anchor = "start";
+    else if (index === boundaries.length - 1) anchor = "end";
+
+    g.append("line")
+      .attr("class", "mini-hist-x-tick")
+      .attr("x1", x)
+      .attr("x2", x)
+      .attr("y1", chartBottom)
+      .attr("y2", chartBottom + 3);
+
+    g.append("text")
+      .attr("class", "mini-hist-bucket-label")
+      .attr("x", x)
+      .attr("y", belowY)
+      .attr("text-anchor", anchor)
+      .attr("dominant-baseline", "hanging")
+      .text(value === 0 ? "0" : tick(value));
+  });
+}
+
+function buildFeatureBarCard({ song, featureKey, eraName, eraRow, eraSongs, songRowLabel = "This song" }) {
+  const value = song[featureKey];
+  const baselineAvg = eraRow[featureKey];
+  const { min: rangeMin, max: rangeMax } = representativeEraRange(eraSongs, featureKey);
+  const meta = featureMeta[featureKey];
+  return {
+    key: featureKey,
+    label: meta.label,
+    valueLabel: meta.format(value),
+    baselineLabel: meta.format(baselineAvg),
+    normalized: normalizeWithBounds(value, rangeMin, rangeMax),
+    baselineNormalized: normalizeWithBounds(baselineAvg, rangeMin, rangeMax),
+    rangeMinLabel: meta.format(rangeMin),
+    rangeMaxLabel: meta.format(rangeMax),
+    eraColor: colors.eras["Streaming growth"],
+    songColor: colors.ink,
+    baselineRowLabel: "Era average",
+    songRowLabel,
+    deltaLabel: formatDelta(featureKey, value - baselineAvg),
+  };
+}
+
 function renderMiniPairBars(selection, options = {}) {
-  const width = options.width || 210;
+  const defaultWidth = options.width || 210;
   const labelCol = 68;
-  const trackWidth = width - labelCol - 4;
   const barTop = 6;
   const rowStep = 20;
   const barHeight = 10;
   const scaleY = barTop + rowStep + barHeight + 5;
-  const height = scaleY + 11;
 
   selection.each(function (card) {
     const host = d3.select(this);
     host.selectAll("svg").remove();
 
+    const width = options.width || card.barWidth || defaultWidth;
+    const trackWidth = width - labelCol - 4;
+    const height = scaleY + 11;
+    const eraColor = card.eraColor || colors.eras["Streaming growth"];
+    const songColor = card.songColor || colors.eras["Streaming native"];
+    const baselineRowLabel = card.baselineRowLabel || "Era average";
+    const songRowLabel = card.songRowLabel || "Top #1";
+
     const rows = [
       {
-        label: "Era average",
+        label: baselineRowLabel,
         norm: card.baselineNormalized,
-        color: colors.eras["Streaming growth"],
-        title: `Era average: ${card.baselineLabel}`,
+        color: eraColor,
+        title: `${baselineRowLabel}: ${card.baselineLabel}`,
       },
       {
-        label: "Top #1",
+        label: songRowLabel,
         norm: card.normalized,
-        color: colors.eras["Streaming native"],
-        title: `Top #1 example: ${card.valueLabel}`,
+        color: songColor,
+        title: `${songRowLabel}: ${card.valueLabel}`,
       },
     ];
 
@@ -1410,6 +1556,164 @@ function renderMiniPairBars(selection, options = {}) {
   });
 }
 
+function formatHistCount(count) {
+  if (!Number.isFinite(count)) return "0";
+  if (count >= 1000) return d3.format("~s")(count);
+  return String(Math.round(count));
+}
+
+function renderMiniHistogram(selection, options = {}) {
+  const defaultWidth = options.width || 210;
+  const padX = 4;
+  const yAxisWidth = 24;
+  const meanLabelY = 8;
+  const chartTop = 14;
+  const chartHeight = 36;
+  const chartBottom = chartTop + chartHeight;
+  const bucketLabelY = chartBottom + 8;
+
+  selection.each(function (card) {
+    const host = d3.select(this);
+    host.selectAll("svg").remove();
+
+    const width = options.width || card.barWidth || defaultWidth;
+    const trackWidth = width - padX * 2 - yAxisWidth;
+    const eraColor = card.eraColor || colors.eras["Streaming growth"];
+    const { rangeMin, rangeMax, xDomainMin } = card;
+    const bins = card.histogram || [];
+    const meta = featureMeta[card.featureKey] || { format: (d) => String(d) };
+    const showAxisBreak = needsHistAxisBreak(card.featureKey, xDomainMin);
+    const breakWidth = showAxisBreak ? 18 : 0;
+    const plotLeft = breakWidth;
+    const plotWidth = trackWidth - plotLeft;
+
+    const xScale = d3
+      .scaleLinear()
+      .domain([xDomainMin, rangeMax])
+      .range([plotLeft, trackWidth])
+      .clamp(true);
+    const maxCount = d3.max(bins, (d) => d.length) || 1;
+    const barHeight = d3.scaleLinear().domain([0, maxCount]).range([0, chartHeight]);
+
+    const svg = host
+      .append("svg")
+      .attr("class", "native-hist-svg")
+      .attr("viewBox", `0 0 ${width} 1`)
+      .attr("role", "img")
+      .attr(
+        "aria-label",
+        `${card.label} histogram for era hits with era mean marked`
+      );
+
+    const yAxis = svg.append("g").attr("transform", `translate(${padX},0)`);
+
+    yAxis
+      .append("text")
+      .attr("class", "mini-hist-y-title")
+      .attr("transform", `translate(7, ${(chartTop + chartBottom) / 2}) rotate(-90)`)
+      .attr("text-anchor", "middle")
+      .text("Hits");
+
+    yAxis
+      .append("text")
+      .attr("class", "mini-hist-y-label")
+      .attr("x", yAxisWidth - 3)
+      .attr("y", chartBottom)
+      .attr("text-anchor", "end")
+      .attr("dominant-baseline", "middle")
+      .text("0");
+
+    if (maxCount > 0) {
+      yAxis
+        .append("text")
+        .attr("class", "mini-hist-y-label")
+        .attr("x", yAxisWidth - 3)
+        .attr("y", chartTop)
+        .attr("text-anchor", "end")
+        .attr("dominant-baseline", "middle")
+        .text(formatHistCount(maxCount));
+    }
+
+    yAxis
+      .append("line")
+      .attr("class", "mini-hist-y-axis")
+      .attr("x1", yAxisWidth)
+      .attr("x2", yAxisWidth)
+      .attr("y1", chartTop)
+      .attr("y2", chartBottom);
+
+    const g = svg.append("g").attr("transform", `translate(${padX + yAxisWidth},0)`);
+
+    g.append("rect")
+      .attr("class", "mini-hist-track")
+      .attr("x", plotLeft)
+      .attr("y", chartTop)
+      .attr("width", plotWidth)
+      .attr("height", chartHeight)
+      .attr("rx", 2);
+
+    g.selectAll(".mini-hist-bar")
+      .data(bins)
+      .join("rect")
+      .attr("class", "mini-hist-bar")
+      .attr("x", (bin) => miniHistBarGeometry(bin, xScale).x)
+      .attr("y", (bin) => chartBottom - barHeight(bin.length))
+      .attr("width", (bin) => miniHistBarGeometry(bin, xScale).width)
+      .attr("height", (bin) => barHeight(bin.length))
+      .attr("fill", eraColor)
+      .append("title")
+      .text(
+        (bin) =>
+          `${bin.length.toLocaleString()} hit${bin.length === 1 ? "" : "s"} · ${meta.format(bin.x0)} – ${meta.format(bin.x1)}`
+      );
+
+    g.append("line")
+      .attr("class", "mini-hist-x-axis")
+      .attr("x1", plotLeft)
+      .attr("x2", trackWidth)
+      .attr("y1", chartBottom)
+      .attr("y2", chartBottom);
+
+    if (Number.isFinite(card.baselineAvg)) {
+      const meanX = xScale(card.baselineAvg);
+      let meanAnchor = "middle";
+      if (meanX < 22) meanAnchor = "start";
+      else if (meanX > trackWidth - 22) meanAnchor = "end";
+
+      g.append("line")
+        .attr("class", "mini-hist-mean")
+        .attr("x1", meanX)
+        .attr("x2", meanX)
+        .attr("y1", chartTop)
+        .attr("y2", chartBottom)
+        .append("title")
+        .text(`Era average: ${card.baselineLabel}`);
+
+      g.append("text")
+        .attr("class", "mini-hist-mean-label")
+        .attr("x", meanX)
+        .attr("y", meanLabelY)
+        .attr("text-anchor", meanAnchor)
+        .attr("dominant-baseline", "middle")
+        .text("Mean");
+    }
+
+    appendBucketLabels(g, bins, meta, xScale, xDomainMin, chartBottom, bucketLabelY);
+
+    if (showAxisBreak) {
+      appendHistAxisBreak(g, {
+        chartBottom,
+        bucketLabelY,
+        plotLeft,
+        zeroLabel: "0",
+      });
+    }
+
+    const height = bucketLabelY + 10;
+    svg.attr("viewBox", `0 0 ${width} ${height}`);
+  });
+}
+
 function renderIdealFeatureChart(container, row, eraName) {
   container.selectAll("*").remove();
 
@@ -1451,21 +1755,41 @@ function representativeEraRange(songsInEra, featureKey) {
   return { min: d3.min(values), max: d3.max(values) };
 }
 
+function nativeProfileSongKey(song) {
+  return `${song.Song}::${song.Performer}`;
+}
+
+function pickClosestToEraBaseline(candidates, featureKey, baseline) {
+  return d3.least(candidates, (d) => {
+    const value = d[featureKey];
+    if (!Number.isFinite(value) || !Number.isFinite(baseline)) return Infinity;
+    return Math.abs(value - baseline);
+  });
+}
+
 function renderNativeProfile(songs, yearly, eraSummary, eraName) {
   const container = d3.select("#native-profile");
+  const caption = d3.select("#native-profile-caption");
   if (container.empty()) return;
-  const eraPhrase = `this ${eraName.toLowerCase()} era`;
+  const eraPhrase = `the ${eraName.toLowerCase()} era`;
 
   const eraSongs = songs.filter((d) => d.era === eraName);
   const latestYear = d3.max(eraSongs, (d) => d.year);
-  const latestTop = eraSongs.filter((d) => d.year === latestYear && d.best_rank === 1);
+  const latestTopRaw = eraSongs.filter((d) => d.year === latestYear && d.best_rank === 1);
+  const latestTopByKey = new Map();
+  latestTopRaw.forEach((song) => {
+    latestTopByKey.set(nativeProfileSongKey(song), song);
+  });
+  const latestTop = [...latestTopByKey.values()];
   const eraRow = eraSummary.find((d) => d?.era === eraName);
   if (!latestTop.length || !Number.isFinite(latestYear)) {
     container.html("<p>No chart-topper data available for this era.</p>");
+    caption.text("");
     return;
   }
   if (!eraRow) {
     container.html("<p>No era baseline available.</p>");
+    caption.text("");
     return;
   }
 
@@ -1473,53 +1797,48 @@ function renderNativeProfile(songs, yearly, eraSummary, eraName) {
     {
       key: "duration_min",
       label: "Duration",
-      rule: "Shortest #1 song in latest year",
-      sentence: "had the shortest duration",
-      pick: (arr) => d3.least(arr, (d) => d.duration_min),
+      rule: "Closest to era-average duration among #1 hits in latest year",
+      sentence: "sat closest to the era-average duration",
     },
     {
       key: "danceability",
       label: "Danceability",
-      rule: "Most danceable #1 song in latest year",
-      sentence: "was the most danceable",
-      pick: (arr) => d3.greatest(arr, (d) => d.danceability),
+      rule: "Closest to era-average danceability among #1 hits in latest year",
+      sentence: "sat closest to the era-average danceability",
     },
     {
       key: "energy",
       label: "Energy",
-      rule: "Closest to average #1 energy in latest year",
-      sentence: "was closest to the typical energy",
-      pick: (arr) => d3.least(arr, (d) => Math.abs(d.energy - d3.mean(arr, (x) => x.energy))),
+      rule: "Closest to era-average energy among #1 hits in latest year",
+      sentence: "sat closest to the era-average energy",
     },
     {
       key: "loudness",
       label: "Loudness",
-      rule: "Loudest #1 song in latest year",
-      sentence: "was the loudest",
-      pick: (arr) => d3.greatest(arr, (d) => d.loudness),
+      rule: "Closest to era-average loudness among #1 hits in latest year",
+      sentence: "sat closest to the era-average loudness",
     },
     {
       key: "acousticness",
       label: "Acousticness",
-      rule: "Least acoustic #1 song in latest year",
-      sentence: "was the least acoustic",
-      pick: (arr) => d3.least(arr, (d) => d.acousticness),
+      rule: "Closest to era-average acousticness among #1 hits in latest year",
+      sentence: "sat closest to the era-average acousticness",
     },
     {
       key: "valence",
       label: "Valence",
-      rule: "Lowest-valence #1 song in latest year",
-      sentence: "had the lowest valence",
-      pick: (arr) => d3.least(arr, (d) => d.valence),
+      rule: "Closest to era-average valence among #1 hits in latest year",
+      sentence: "sat closest to the era-average valence",
     },
   ];
 
   const cards = featureCards.map((cfg) => {
-    const song = cfg.pick(latestTop) || latestTop[0];
+    const baselineAvg = eraRow[cfg.key];
+    const song = pickClosestToEraBaseline(latestTop, cfg.key, baselineAvg) || latestTop[0];
     const value = song[cfg.key];
     const { min: rangeMin, max: rangeMax } = representativeEraRange(eraSongs, cfg.key);
+    const xDomainMin = histXDomainMin(cfg.key, rangeMin);
     const normalized = normalizeWithBounds(value, rangeMin, rangeMax);
-    const baselineAvg = eraRow[cfg.key];
     const baselineNormalized = normalizeWithBounds(baselineAvg, rangeMin, rangeMax);
     const label = featureMeta[cfg.key]?.format ? featureMeta[cfg.key].format(value) : value.toFixed(3);
     const baselineLabel = featureMeta[cfg.key]?.format
@@ -1532,35 +1851,45 @@ function renderNativeProfile(songs, yearly, eraSummary, eraName) {
       ? featureMeta[cfg.key].format(rangeMax)
       : Number(rangeMax).toFixed(3);
     const delta = value - baselineAvg;
+    const eraValues = eraSongs.map((d) => d[cfg.key]).filter((d) => Number.isFinite(d));
     return {
       ...cfg,
       song,
+      featureKey: cfg.key,
       valueLabel: label,
       baselineLabel,
+      songValue: value,
+      baselineAvg,
       deltaLabel: formatDelta(cfg.key, delta),
       normalized,
       baselineNormalized,
+      rangeMin,
+      rangeMax,
+      xDomainMin,
       rangeMinLabel,
       rangeMaxLabel,
+      histogram: featureHistogram(eraValues, xDomainMin, rangeMax),
+      eraColor: colors.eras["Streaming growth"],
+      songColor: colors.ink,
+      baselineRowLabel: "Era average",
+      songRowLabel: "Top #1",
     };
   });
 
   container.selectAll("*").remove();
 
-  container
-    .append("p")
-    .attr("class", "native-profile-meta")
-    .text(
-      "Hear the difference — for each feature, play a recent top charter and see how it compares to that era’s average in the bars."
+  if (!caption.empty()) {
+    caption.attr("aria-hidden", null).text(
+      `Each card picks the #1 hit closest to the era average for that feature among recent chart-toppers in ${eraPhrase}. Histograms show how all Hot 100 hits in this era are distributed, with the era mean labeled.`
     );
+  }
 
   const grid = container.append("div").attr("class", "native-profile-grid");
   const cardSel = grid.selectAll(".native-card").data(cards, (d) => d.key).join("article").attr("class", "native-card");
 
   cardSel.append("h4").text((d) => d.label);
-  cardSel.append("p").attr("class", "native-rule").text((d) => d.rule.replace("latest year", eraPhrase));
 
-  cardSel.append("div").attr("class", "native-bar-chart").call(renderMiniPairBars);
+  cardSel.append("div").attr("class", "native-hist-chart").call(renderMiniHistogram);
 
   const story = cardSel.append("div").attr("class", "native-story");
   const songLine = story.append("p").attr("class", "native-songline");

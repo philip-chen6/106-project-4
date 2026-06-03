@@ -194,9 +194,13 @@
         <div class="section-copy">
           <h2>So, what does a typical hit look like?</h2>
           <p>
-            Explore the &ldquo;ideal&rdquo; streaming profile for songs of every era.
-            Listen to and view chart-topper examples to see how they differ from the
-            average hit in their era.
+            Explore &ldquo;ideal hit&rdquo; profiles built from era averages. Each card
+            pairs one feature with a recent #1 chosen for the closest match to that
+            era&rsquo;s mean.
+          </p>
+          <p>
+            Play the examples to hear what a typical chart-topper in that era can sound
+            like!
           </p>
           <div class="era-toggle" role="group" aria-label="Select era for hit profile">
             <button type="button" class="era-pill active" data-era="Streaming native">
@@ -215,6 +219,7 @@
         </div>
 
         <aside class="profile-panel">
+          <div id="native-profile-caption" class="native-profile-caption" aria-hidden="true"></div>
           <div id="native-profile" class="native-profile"></div>
           <div id="ideal-song" class="ideal-song" aria-label="Ideal era profile"></div>
         </aside>
