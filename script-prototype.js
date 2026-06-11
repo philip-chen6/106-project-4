@@ -105,6 +105,8 @@ let radarNorms = null;
 let spotifyLookupData = null;
 let spotifyLookupPromise = null;
 let tracksByArtistKey = null;
+let billboardTracksByArtistKey = null;
+let songIndexReady = false;
 let lastRadarQuery = null;
 let radarComparisonState = null;
 let activeEraFeature = "duration_min";
@@ -606,18 +608,73 @@ function splitArtistNames(value) {
     .filter(Boolean);
 }
 
-function ensureTrackIndex() {
-  if (tracksByArtistKey || !spotifyLookupData?.length) return;
+function performerLookupKeys(performer) {
+  const keys = new Set();
+  const text = String(performer || "").trim();
+  if (!text) return keys;
+
+  keys.add(normalizeArtistKey(text));
+  text.split(/\s+feat\.?\s+|\s+&\s+|,|;/i).forEach((part) => {
+    const trimmed = part.trim();
+    if (trimmed) keys.add(normalizeArtistKey(trimmed));
+  });
+  return keys;
+}
+
+function addTitleToIndex(index, artistKey, title) {
+  if (!artistKey || !title) return;
+  if (!index.has(artistKey)) index.set(artistKey, new Set());
+  index.get(artistKey).add(title);
+}
+
+function resolveArtistKeysForSongs(artistQuery) {
+  const keys = new Set();
+  const normalized = normalizeArtistKey(artistQuery);
+  if (!normalized) return keys;
+
+  keys.add(normalized);
+
+  const artistRow = findArtistAverage(artistQuery);
+  if (artistRow) {
+    keys.add(normalizeArtistKey(artistRow.artist_key || artistRow.artist));
+  }
+
+  const tokens = normalized.split(/\s+/).filter(Boolean);
+  const indexKeys = [
+    ...(tracksByArtistKey ? tracksByArtistKey.keys() : []),
+    ...(billboardTracksByArtistKey ? billboardTracksByArtistKey.keys() : []),
+  ];
+
+  indexKeys.forEach((key) => {
+    if (tokens.every((token) => key.includes(token))) keys.add(key);
+  });
+
+  return keys;
+}
+
+function ensureSongIndex() {
+  if (songIndexReady) return;
+
   tracksByArtistKey = new Map();
-  spotifyLookupData.forEach((row) => {
+  billboardTracksByArtistKey = new Map();
+
+  spotifyLookupData?.forEach((row) => {
     const track = String(row.track_name || "").trim();
     if (!track) return;
     splitArtistNames(row.artists).forEach((artistName) => {
-      const key = normalizeArtistKey(artistName);
-      if (!tracksByArtistKey.has(key)) tracksByArtistKey.set(key, new Set());
-      tracksByArtistKey.get(key).add(track);
+      addTitleToIndex(tracksByArtistKey, normalizeArtistKey(artistName), track);
     });
   });
+
+  songsData.forEach((song) => {
+    const track = String(song.Song || "").trim();
+    if (!track) return;
+    performerLookupKeys(song.Performer).forEach((artistKey) => {
+      addTitleToIndex(billboardTracksByArtistKey, artistKey, track);
+    });
+  });
+
+  songIndexReady = true;
 }
 
 function filterArtistSuggestions(query, limit = 8) {
@@ -650,18 +707,23 @@ function filterArtistSuggestions(query, limit = 8) {
     .map((entry) => entry.name);
 }
 
-function filterSongSuggestions(artistQuery, songQuery, limit = 8) {
-  const artist = normalizeArtistKey(artistQuery);
-  if (!artist || !tracksByArtistKey) return [];
-
-  const tokens = artist.split(/\s+/).filter(Boolean);
+function collectSongTitlesForArtist(artistQuery) {
+  ensureSongIndex();
   const titles = new Set();
+  const artistKeys = resolveArtistKeysForSongs(artistQuery);
 
-  tracksByArtistKey.forEach((trackSet, key) => {
-    if (!tokens.every((token) => key.includes(token))) return;
-    trackSet.forEach((title) => titles.add(title));
+  artistKeys.forEach((key) => {
+    tracksByArtistKey.get(key)?.forEach((title) => titles.add(title));
+    billboardTracksByArtistKey.get(key)?.forEach((title) => titles.add(title));
   });
 
+  return titles;
+}
+
+function filterSongSuggestions(artistQuery, songQuery) {
+  if (!normalizeArtistKey(artistQuery)) return [];
+
+  const titles = collectSongTitlesForArtist(artistQuery);
   const query = songQuery.trim().toLowerCase();
   const scored = [];
 
@@ -679,7 +741,6 @@ function filterSongSuggestions(artistQuery, songQuery, limit = 8) {
 
   return scored
     .sort((a, b) => b.score - a.score || a.title.localeCompare(b.title))
-    .slice(0, limit)
     .map((entry) => entry.title);
 }
 
@@ -810,21 +871,30 @@ function findArtistAverage(artistQuery) {
   return bestScore > 20 ? best : null;
 }
 
+function artistMatchesSongPerformer(artistKeys, performer) {
+  const performerKeys = performerLookupKeys(performer);
+  return [...artistKeys].some((artistKey) =>
+    [...performerKeys].some(
+      (performerKey) =>
+        performerKey === artistKey ||
+        performerKey.includes(artistKey) ||
+        artistKey.includes(performerKey)
+    )
+  );
+}
+
 function findBillboardSong(artistQuery, songTitle = "") {
-  const artist = normalizeArtistKey(artistQuery);
+  const artistKeys = resolveArtistKeysForSongs(artistQuery);
   const title = songTitle.trim().toLowerCase();
-  if (!artist) return null;
+  if (!artistKeys.size) return null;
 
   let best = null;
   let bestScore = -Infinity;
 
   songsData.forEach((song) => {
-    const performer = normalizeArtistKey(song.Performer);
-    const track = String(song.Song || "").toLowerCase();
-    if (!performer.includes(artist) && !artist.split(/\s+/).every((token) => performer.includes(token))) {
-      return;
-    }
+    if (!artistMatchesSongPerformer(artistKeys, song.Performer)) return;
 
+    const track = String(song.Song || "").toLowerCase();
     let score = 40;
     if (title) {
       if (track === title) score += 140;
@@ -843,17 +913,15 @@ function findBillboardSong(artistQuery, songTitle = "") {
 }
 
 function findSpotifyTrack(artistQuery, songTitle, lookup) {
-  const artist = normalizeArtistKey(artistQuery);
+  const artistKeys = resolveArtistKeysForSongs(artistQuery);
   const title = songTitle.trim().toLowerCase();
-  if (!artist || !lookup?.length) return null;
+  if (!artistKeys.size || !lookup?.length) return null;
 
   let best = null;
   let bestScore = -Infinity;
-  const tokens = artist.split(/\s+/).filter(Boolean);
 
   lookup.forEach((row) => {
-    const artists = normalizeArtistKey(row.artists);
-    if (!tokens.every((token) => artists.includes(token))) return;
+    if (!artistMatchesSongPerformer(artistKeys, row.artists)) return;
 
     const track = String(row.track_name || "").toLowerCase();
     let score = 30;
@@ -1237,7 +1305,7 @@ async function renderSongComparison(artistQuery, songTitle = "") {
 
   if (!series.length) {
     showEraRadarComparison();
-  container.html(`
+    container.html(`
       <p class="compare-empty">We could not find “${escapeHTML(artistInput)}” in the Spotify catalog averages. Try another spelling.</p>
     `);
     return;
@@ -1282,7 +1350,6 @@ function setupSongCompare() {
     attachAutocomplete(songInput, songList, async (query) => {
       if (!normalizeArtistKey(artistInput.value)) return [];
       await loadSpotifyLookup();
-      ensureTrackIndex();
       return filterSongSuggestions(artistInput.value, query);
     });
 
